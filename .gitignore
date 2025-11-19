@@ -1,0 +1,27 @@
+# Ignore large Open-X dataset files (TFRecords and shards)
+# Keep metadata (dataset_info.json, features.json)
+
+# Project-level Open-X data (if present)
+/data/open-x/**
+!/data/open-x/**/dataset_info.json
+!/data/open-x/**/features.json
+
+# vla-benchmark dataset folder
+/vla-benchmark/data/open-x/**
+!/vla-benchmark/data/open-x/**/dataset_info.json
+!/vla-benchmark/data/open-x/**/features.json
+
+# TFRecord shards anywhere
+**/*.tfrecord*
+**/*.tfrecord-*
+**/*.tfrecord.gz
+
+# Optional: ignore large caches and results
+/vla-benchmark/results/
+/vla-benchmark/logs/
+
+# Ignore model artifacts (weights, checkpoints, local clones)
+models/
+
+# Keep a placeholder if you want the directory to exist in repo
+!models/.gitkeep

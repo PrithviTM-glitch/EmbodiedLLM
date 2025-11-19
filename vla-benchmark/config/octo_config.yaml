@@ -1,0 +1,33 @@
+# OCTO Model Configuration
+
+# Model checkpoint paths
+models:
+  small:
+    path: "hf://rail-berkeley/octo-small-1.5"
+    params: "27M"
+    description: "Smaller OCTO model, faster inference"
+  
+  base:
+    path: "hf://rail-berkeley/octo-base-1.5"
+    params: "93M"
+    description: "Base OCTO model, better performance"
+
+# Default model to use
+default_model: "small"
+
+# Action space configuration
+action_space:
+  dim: 7  # 6-DoF + gripper
+  bounds: [-1.0, 1.0]  # Normalized action space
+
+# Inference settings
+inference:
+  temperature: 1.0  # Sampling temperature for action prediction
+  num_samples: 1    # Number of action samples
+  horizon: 1        # Action prediction horizon
+  
+# Task conditioning
+task_conditioning:
+  use_language: true
+  use_goal_images: false
+  default_instruction: "pick up the object and place it in the bowl"

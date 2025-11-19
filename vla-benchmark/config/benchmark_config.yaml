@@ -1,0 +1,78 @@
+# Benchmark Evaluation Configuration
+
+# General benchmark settings
+general:
+  results_dir: "results"
+  save_predictions: true
+  save_visualizations: false
+  verbose: true
+
+# Open X-Embodiment benchmark settings
+openx:
+  # Default dataset (fractal is smaller, good for testing)
+  dataset_name: "fractal20220817_data"
+  # Base path to OXE data (cloud or local)
+  # Use local downloaded data in project folder (change to gs://gresearch/robotics for direct GCS access)
+  data_path: "data/open-x"
+  
+  evaluation:
+    max_episodes_per_task: 100
+    use_language: true
+    action_mse_threshold: 0.1  # Success threshold for MSE
+  
+  metrics:
+    - action_mse
+    - action_mae
+    - cosine_similarity
+  
+  # Available OXE datasets (see models/octo/octo/data/oxe/oxe_dataset_configs.py)
+  datasets:
+    fractal:
+      name: "fractal20220817_data"
+      description: "Fractal manipulation dataset (smaller, good for testing)"
+      tasks: ["manipulation"]
+    
+    bridge:
+      name: "bridge_dataset"
+      description: "Bridge V2 dataset (requires download from Berkeley)"
+      tasks: ["manipulation"]
+      note: "Download from https://rail.eecs.berkeley.edu/datasets/bridge_release/data/tfds/"
+    
+    kuka:
+      name: "kuka"
+      description: "KUKA robot dataset"
+      tasks: ["manipulation"]
+
+# LIBERO-90 benchmark settings
+libero:
+  data_path: "data/libero"
+  
+  evaluation:
+    max_episodes_per_task: 50
+    max_steps_per_episode: 600
+    use_language: true
+    success_threshold: 0.8  # Task completion threshold
+  
+  tasks:
+    suite: "libero_90"  # or "libero_10", "libero_spatial"
+    num_tasks: 90
+  
+  environment:
+    render: false
+    render_mode: "rgb_array"
+    camera_names: ["agentview", "robot0_eye_in_hand"]
+
+# Evaluation modes
+modes:
+  quick_test:
+    max_episodes_per_task: 5
+    datasets: ["bridge_dataset"]
+  
+  standard:
+    max_episodes_per_task: 100
+    datasets: ["bridge_dataset", "fractal20220817_data"]
+  
+  comprehensive:
+    max_episodes_per_task: 500
+    datasets: ["bridge_dataset", "fractal20220817_data", "kuka"]
+    save_visualizations: true
