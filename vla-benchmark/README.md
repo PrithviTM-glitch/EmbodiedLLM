@@ -10,6 +10,7 @@ this folder will be populated only if the model requires adapters to run the ben
 - `logs/` : Contains logs generated while running the benchmark on different models. each model will have a seperate log folder with all logs.
 - `scripts/` : Contains scripts to run the benchmark on different models. This will have a base class to run the benchmark on any model and child classed in different files to run the benchmark on specific models.
 - `docs/` : Contains all READMEs related to the models initialisation and results.
+- `benchmark/` : Contains the LIBERO benchmark data and repository that is cloned. 
 
 ### Models
 

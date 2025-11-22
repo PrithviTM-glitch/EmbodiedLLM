@@ -14,3 +14,4 @@ vla-benchmark/.venv/
 
 # Models folder
 vla-benchmark/models/
+vla-benchmark/benchmark
