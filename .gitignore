@@ -1,0 +1,16 @@
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+vla-benchmark/venv/
+vla-benchmark/env/
+vla-benchmark/.venv/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Models folder
+vla-benchmark/models/
