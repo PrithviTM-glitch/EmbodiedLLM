@@ -15,3 +15,7 @@ vla-benchmark/.venv/
 # Models folder
 vla-benchmark/models/
 vla-benchmark/benchmark
+
+# Generated datasets / training artifacts
+vla-benchmark/datasets/
+vla-benchmark/results/evo1_vlabench_finetune/
