@@ -7,7 +7,7 @@ Includes zero-out ablation, noise injection, and coordinated multi-encoder ablat
 
 import torch
 import torch.nn as nn
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
 
 from .base_hooks import BaseAblationHook

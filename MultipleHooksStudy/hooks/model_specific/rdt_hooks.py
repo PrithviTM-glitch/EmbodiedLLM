@@ -44,9 +44,7 @@ class RDTHooks:
         
         # Model components
         self.vision_encoder = None
-        self.proprio_encoder = None  # MLP with Fourier features
-        self.fourier_layer = None
-        self.mlp_layers = None  # List of MLP layers to profile
+        self.proprio_encoder = None  # state_adaptor (single Linear layer in RDT-1B)
         self.language_encoder = None
         self.transformer_layers = None
     
@@ -60,7 +58,7 @@ class RDTHooks:
         structure = {
             "model_name": "RDT-1B",
             "has_proprio_encoder": True,
-            "proprio_encoder_type": "mlp+fourier",
+            "proprio_encoder_type": "linear",  # Single Linear layer (state_adaptor)
             "components": {}
         }
         
@@ -71,16 +69,18 @@ class RDTHooks:
                 structure["components"]["vision_encoder"] = attr
                 break
         
-        # Proprio encoder (MLP)
-        for attr in ['proprio_encoder', 'state_encoder', 'state_mlp', 'robot_state_encoder']:
+        # Proprio encoder (state_adaptor - single Linear layer in RDT-1B)
+        # Priority: state_adaptor (actual RDT-1B name), then fallbacks
+        for attr in ['state_adaptor', 'proprio_encoder', 'state_encoder', 'state_mlp', 'robot_state_encoder']:
             if hasattr(self.model, attr):
                 self.proprio_encoder = getattr(self.model, attr)
                 structure["components"]["proprio_encoder"] = attr
                 
-                # Extract Fourier and MLP layers
-                self._extract_mlp_structure()
-                structure["mlp_layers"] = len(self.mlp_layers) if self.mlp_layers else 0
-                structure["has_fourier"] = self.fourier_layer is not None
+                # Check if it's a Linear layer
+                if isinstance(self.proprio_encoder, nn.Linear):
+                    structure["proprio_encoder_architecture"] = "single_linear"
+                    structure["proprio_input_dim"] = self.proprio_encoder.in_features
+                    structure["proprio_output_dim"] = self.proprio_encoder.out_features
                 break
         
         # Language encoder
@@ -102,36 +102,6 @@ class RDTHooks:
         
         return structure
     
-    def _extract_mlp_structure(self):
-        """Extract Fourier layer and MLP layers from proprio encoder."""
-        if self.proprio_encoder is None:
-            return
-        
-        self.mlp_layers = []
-        
-        # Check if encoder is a Sequential or has named children
-        if isinstance(self.proprio_encoder, nn.Sequential):
-            for i, module in enumerate(self.proprio_encoder):
-                if 'fourier' in str(type(module)).lower() or 'fourier' in str(module).lower():
-                    self.fourier_layer = module
-                elif isinstance(module, nn.Linear):
-                    self.mlp_layers.append((f"mlp_layer_{i}", module))
-        else:
-            # Check for named modules
-            for name, module in self.proprio_encoder.named_modules():
-                if 'fourier' in name.lower():
-                    self.fourier_layer = module
-                elif isinstance(module, nn.Linear) and 'fourier' not in name.lower():
-                    self.mlp_layers.append((name, module))
-        
-        # If we found linear layers but no explicit Fourier, check first module
-        if not self.fourier_layer and len(self.mlp_layers) > 0:
-            # First linear might be Fourier feature projection
-            first_name, first_layer = self.mlp_layers[0]
-            if 'project' in first_name.lower() or 'embed' in first_name.lower():
-                self.fourier_layer = first_layer
-                self.mlp_layers = self.mlp_layers[1:]
-    
     def attach_gradient_hooks(self):
         """Attach gradient flow analysis hooks."""
         if self.proprio_encoder is None:
@@ -144,24 +114,12 @@ class RDTHooks:
             proprio_encoder=self.proprio_encoder
         )
         
-        # CRITICAL: Layer-wise profiling of MLP
-        # This is key for RDT - we want to see gradient flow through each MLP layer
-        if self.mlp_layers:
-            layer_modules = [layer for _, layer in self.mlp_layers]
-            layer_names = [name for name, _ in self.mlp_layers]
-            
+        # Profile the state_adaptor (single Linear layer in RDT-1B)
+        if self.proprio_encoder:
             self.gradient_analyzer.setup_layer_profiling(
-                "proprio_mlp",
-                layer_modules,
-                layer_names
-            )
-        
-        # Also profile Fourier layer separately if it exists
-        if self.fourier_layer:
-            self.gradient_analyzer.setup_layer_profiling(
-                "fourier_features",
-                [self.fourier_layer],
-                ["fourier_projection"]
+                "state_adaptor",
+                [self.proprio_encoder],
+                ["state_adaptor"]
             )
         
         # Profile transformer layers to see how gradients flow back
@@ -185,19 +143,11 @@ class RDTHooks:
             proprio_encoder=self.proprio_encoder
         )
         
-        # ADDITIONAL: Extract features at intermediate MLP layers
-        # This lets us see if Fourier → MLP1 → MLP2 adds meaningful structure
-        if self.mlp_layers:
-            for name, layer in self.mlp_layers:
-                self.representation_analyzer.feature_extractor.attach(
-                    layer,
-                    name=f"proprio_mlp_{name}"
-                )
-        
-        if self.fourier_layer:
+        # Extract features from the state_adaptor output
+        if self.proprio_encoder:
             self.representation_analyzer.feature_extractor.attach(
-                self.fourier_layer,
-                name="fourier_features"
+                self.proprio_encoder,
+                name="state_adaptor_output"
             )
     
     def attach_ablation_hooks(self):

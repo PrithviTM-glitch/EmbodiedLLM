@@ -61,16 +61,16 @@ class OpenVLAHooks:
         }
         
         # Try to find vision encoder (SigLIP)
-        # Common attribute names: vision_encoder, vision_model, image_encoder
-        for attr in ['vision_encoder', 'vision_model', 'image_encoder', 'visual_encoder']:
+        # PrismaticVLM (actual OpenVLA) uses 'vision_backbone', others may use vision_encoder, etc.
+        for attr in ['vision_backbone', 'vision_encoder', 'vision_model', 'image_encoder', 'visual_encoder']:
             if hasattr(self.model, attr):
                 self.vision_encoder = getattr(self.model, attr)
                 structure["components"]["vision_encoder"] = attr
                 break
         
         # Try to find language encoder (Llama)
-        # Common attribute names: language_model, llm, text_encoder
-        for attr in ['language_model', 'llm', 'text_encoder', 'language_encoder']:
+        # PrismaticVLM (actual OpenVLA) uses 'llm_backbone', others may use language_model, etc.
+        for attr in ['llm_backbone', 'language_model', 'llm', 'text_encoder', 'language_encoder']:
             if hasattr(self.model, attr):
                 self.language_encoder = getattr(self.model, attr)
                 structure["components"]["language_encoder"] = attr
