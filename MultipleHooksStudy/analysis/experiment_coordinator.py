@@ -12,7 +12,7 @@ from pathlib import Path
 import json
 from datetime import datetime
 
-from ..hooks.model_specific import OpenVLAHooks, OctoHooks, RDTHooks, Pi0Hooks
+from ..hooks.model_specific import Evo1Hooks, OctoHooks, RDTHooks, Pi0Hooks
 
 
 class ExperimentCoordinator:
@@ -50,7 +50,7 @@ class ExperimentCoordinator:
         Register a model for experiments.
         
         Args:
-            model_name: Name identifier (openvla, octo, rdt, pi0)
+            model_name: Name identifier (evo1, octo, rdt, pi0)
             model: Model instance
             hook_adapter_class: Optional custom hook adapter (auto-detected if None)
         """
@@ -59,7 +59,7 @@ class ExperimentCoordinator:
         # Auto-detect hook adapter if not provided
         if hook_adapter_class is None:
             adapter_map = {
-                "openvla": OpenVLAHooks,
+                "evo1": Evo1Hooks,
                 "octo": OctoHooks,
                 "rdt": RDTHooks,
                 "pi0": Pi0Hooks

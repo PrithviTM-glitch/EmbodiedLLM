@@ -2,15 +2,14 @@
 Test script for verifying model-specific adapters with real checkpoints.
 
 This script attempts to:
-1. Load actual VLA models from HuggingFace
-2. Test model structure discovery
-3. Verify hook attachment works
-4. Validate basic forward/backward pass
+1. Test model structure discovery
+2. Verify hook attachment works
+3. Validate basic forward/backward pass
 
 Models to test:
-- OpenVLA (7B): openvla/openvla-7b
 - RDT-1B (1.2B): robotics-diffusion-transformer/rdt-1b
-- Evo-1 (0.77B): TBD (may not be on HF yet)
+- Evo-1 (0.77B): MINT-SJTU/Evo1_MetaWorld
+- π0 (3.3B): Physical-Intelligence/pi0
 
 Note: This is a lightweight test - full model loading requires significant GPU memory.
 We'll test structure discovery only without loading full weights.
@@ -26,53 +25,9 @@ from pathlib import Path
 hooks_dir = Path(__file__).parent / "hooks"
 sys.path.insert(0, str(hooks_dir))
 
-from hooks.model_specific.openvla_hooks import OpenVLAHooks
 from hooks.model_specific.rdt_hooks import RDTHooks
 from hooks.model_specific.evo1_hooks import Evo1Hooks
-
-
-def test_openvla_discovery():
-    """Test OpenVLA model structure discovery."""
-    print("\n" + "="*60)
-    print("Testing OpenVLA Model Discovery")
-    print("="*60)
-    
-    # Create mock OpenVLA model structure
-    class MockPrismaticVLM(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.vision_backbone = nn.Sequential(
-                nn.Conv2d(3, 64, 3),
-                nn.ReLU()
-            )
-            self.llm_backbone = nn.Sequential(
-                nn.Linear(512, 4096),
-                nn.ReLU()
-            )
-            self.projector = nn.Linear(768, 4096)
-    
-    mock_model = MockPrismaticVLM()
-    print("✓ Created mock OpenVLA model with vision_backbone and llm_backbone")
-    
-    # Test discovery
-    hook_manager = OpenVLAHooks(mock_model)
-    structure = hook_manager.discover_model_structure()
-    
-    print(f"\nDiscovered structure:")
-    print(f"  Model name: {structure['model_name']}")
-    print(f"  Has proprio encoder: {structure['has_proprio_encoder']}")
-    print(f"  Components found: {structure['components']}")
-    
-    # Verify correct attributes discovered
-    assert structure['components'].get('vision_encoder') == 'vision_backbone', \
-        f"Expected 'vision_backbone', got {structure['components'].get('vision_encoder')}"
-    assert structure['components'].get('language_encoder') == 'llm_backbone', \
-        f"Expected 'llm_backbone', got {structure['components'].get('language_encoder')}"
-    assert structure['components'].get('fusion_layer') == 'projector', \
-        f"Expected 'projector', got {structure['components'].get('fusion_layer')}"
-    
-    print("\n✅ OpenVLA discovery test PASSED")
-    return True
+from hooks.model_specific.pi0_hooks import Pi0Hooks
 
 
 def test_rdt_discovery():
@@ -188,34 +143,109 @@ def test_evo1_discovery():
     return True
 
 
+def test_pi0_discovery():
+    """Test π0 model structure discovery."""
+    print("\n" + "="*60)
+    print("Testing π0 Model Discovery")
+    print("="*60)
+    
+    # Create mock π0 model structure
+    class MockProprioEncoder(nn.Module):
+        def __init__(self):
+            super().__init__()
+            # Separate multi-layer encoder (π0's key feature)
+            self.layers = nn.ModuleList([
+                nn.Linear(7, 128),
+                nn.Linear(128, 256),
+                nn.Linear(256, 512)
+            ])
+    
+    class MockPi0(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.vision_encoder = nn.Sequential(
+                nn.Conv2d(3, 64, 3),
+                nn.ReLU()
+            )
+            self.language_encoder = nn.Sequential(
+                nn.Linear(512, 4096),
+                nn.ReLU()
+            )
+            # Separate proprio encoder with layers
+            self.proprio_encoder = MockProprioEncoder()
+            # Transformer with causal masking
+            self.transformer = nn.TransformerEncoder(
+                nn.TransformerEncoderLayer(d_model=512, nhead=8),
+                num_layers=12
+            )
+            # Flow matching
+            self.flow_matcher = nn.Linear(512, 7)
+    
+    mock_model = MockPi0()
+    print("✓ Created mock π0 model with vision/language/proprio encoders")
+    print("  - Proprio encoder: Separate multi-layer (3 layers)")
+    print("  - Transformer: 12 layers with causal masking")
+    print("  - Action: Flow matching")
+    
+    # Test discovery
+    hook_manager = Pi0Hooks(mock_model)
+    structure = hook_manager.discover_model_structure()
+    
+    print(f"\nDiscovered structure:")
+    print(f"  Model name: {structure['model_name']}")
+    print(f"  Has proprio encoder: {structure['has_proprio_encoder']}")
+    print(f"  Proprio encoder type: {structure.get('proprio_encoder_type', 'unknown')}")
+    print(f"  Proprio encoder layers: {structure.get('proprio_encoder_layers', 0)}")
+    print(f"  Components found: {structure['components']}")
+    
+    # Verify correct attributes discovered
+    assert structure['has_proprio_encoder'] == True, \
+        "Expected π0 to have proprio encoder"
+    assert structure['proprio_encoder_type'] == 'separate+causal', \
+        f"Expected 'separate+causal', got {structure['proprio_encoder_type']}"
+    assert structure.get('proprio_encoder_layers', 0) == 3, \
+        f"Expected 3 proprio encoder layers, got {structure.get('proprio_encoder_layers')}"
+    assert 'flow_matching' in structure['components'], \
+        "Expected flow_matching component"
+    
+    print("\n✓ π0 architecture verified:")
+    print("  - Vision encoder: Found")
+    print("  - Language encoder: Found")
+    print("  - Proprio encoder: Separate multi-layer ✓")
+    print("  - Flow matching: Found")
+    print("\n✅ π0 discovery test PASSED")
+    return True
+
+
 def test_hook_attachment():
     """Test that hooks can be attached without errors."""
     print("\n" + "="*60)
     print("Testing Hook Attachment")
     print("="*60)
     
-    # Test OpenVLA hook attachment
-    class MockPrismaticVLM(nn.Module):
+    # Test RDT hook attachment
+    class MockRDTRunner(nn.Module):
         def __init__(self):
             super().__init__()
-            self.vision_backbone = nn.Linear(3, 64)
-            self.llm_backbone = nn.Linear(512, 4096)
+            self.vision_encoder = nn.Linear(3, 64)
+            self.state_adaptor = nn.Linear(14, 512)
+            self.language_encoder = nn.Linear(512, 4096)
     
-    mock_model = MockPrismaticVLM()
-    hook_manager = OpenVLAHooks(mock_model)
+    mock_model = MockRDTRunner()
+    hook_manager = RDTHooks(mock_model)
     
     try:
         hook_manager.attach_gradient_hooks()
-        print("✓ OpenVLA gradient hooks attached successfully")
+        print("✓ RDT gradient hooks attached successfully")
     except Exception as e:
-        print(f"❌ OpenVLA gradient hook attachment failed: {e}")
+        print(f"❌ RDT gradient hook attachment failed: {e}")
         return False
     
     try:
         hook_manager.attach_representation_hooks()
-        print("✓ OpenVLA representation hooks attached successfully")
+        print("✓ RDT representation hooks attached successfully")
     except Exception as e:
-        print(f"❌ OpenVLA representation hook attachment failed: {e}")
+        print(f"❌ RDT representation hook attachment failed: {e}")
         return False
     
     print("\n✅ Hook attachment test PASSED")
@@ -231,9 +261,9 @@ def main():
     print("with model structures matching real implementations.\n")
     
     results = {
-        "OpenVLA Discovery": test_openvla_discovery(),
-        "RDT Discovery": test_rdt_discovery(),
+        "RDT-1B Discovery": test_rdt_discovery(),
         "Evo-1 Discovery": test_evo1_discovery(),
+        "π0 Discovery": test_pi0_discovery(),
         "Hook Attachment": test_hook_attachment()
     }
     
@@ -250,9 +280,9 @@ def main():
         print("🎉 ALL TESTS PASSED")
         print("\nModel adapters are correctly aligned with real implementations!")
         print("\nNext steps:")
-        print("  1. Test with actual HuggingFace checkpoints (openvla/openvla-7b)")
-        print("  2. Run full forward/backward passes")
-        print("  3. Validate gradient capture and feature extraction")
+        print("  1. Test with actual HuggingFace checkpoints")
+        print("  2. Run full forward/backward passes on cloud GPU")
+        print("  3. Execute LIBERO + Meta-World benchmarks")
     else:
         print("❌ SOME TESTS FAILED")
         print("\nPlease review the failed tests above.")

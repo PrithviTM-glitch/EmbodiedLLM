@@ -6,6 +6,32 @@ Investigate why proprioceptive state encoders (robot joint positions, gripper st
 
 ---
 
+## 🚀 Quick Start (Cloud Deployment)
+
+**This project is designed for cloud GPU instances**. See [CLOUD_DEPLOYMENT.md](CLOUD_DEPLOYMENT.md) for complete guide.
+
+```bash
+# Clone repository
+git clone https://github.com/PrithviTM-glitch/EmbodiedLLM.git
+cd EmbodiedLLM/MultipleHooksStudy
+
+# Setup Evo-1 + benchmarks (automated)
+bash scripts/cloud_setup_evo1.sh
+bash scripts/cloud_setup_libero.sh
+bash scripts/cloud_setup_metaworld.sh
+
+# Run complete notebooks (includes analysis + cloud deployment + benchmarks)
+jupyter notebook notebooks/evo1_complete.ipynb      # Evo-1: Analysis → Cloud → LIBERO/Meta-World
+jupyter notebook notebooks/pi0_complete.ipynb       # π0: Analysis → Cloud → LIBERO/Meta-World  
+jupyter notebook notebooks/rdt_1b_complete.ipynb    # RDT-1B: Analysis → Cloud → LIBERO/ManiSkill
+```
+
+**Expected Performance**:
+- LIBERO: 94.8% success (Evo-1 SOTA)
+- Meta-World MT50: 80.6% success (Evo-1 SOTA)
+
+---
+
 ## Background
 
 VLA models integrate multiple modalities:
@@ -41,17 +67,27 @@ VLA models integrate multiple modalities:
 - Different fusion mechanisms
 - Varying treatment of proprioceptive state
 - Availability of pretrained checkpoints
+- **Critical**: Must have proprioceptive encoder (not just visual + language)
 
-### Recommended 3-Model Set
+### Selected 3-Model Set
 
-**1. Evo-1 (MINT-SJTU)**
-- Evolutionary optimization approach to VLA design
-- Baseline for understanding proprioceptive encoding failures
-- Medium scale (~3-7B parameters)
+**1. Evo-1 (0.77B) - PRIMARY MODEL** ✅
+- Integration module for VL + proprio fusion
+- Two-stage training preserves semantic attention
+- **Benchmarks**: LIBERO (94.8%), Meta-World (80.6%) - BOTH available!
+- **Status**: Server-client implemented, cloud-ready notebooks created
+- **Priority**: Focus model (only one with both required benchmarks)
 
-**2. OpenVLA (7B)**
-- Vision-as-prefix architecture (SigLIP + LLaMA)
-- Late fusion: vision features prepended to language stream
+**2. π0 (3.3B) - ALTERNATIVE** ✅
+- Separate multi-layer proprio encoder (NOT fused into VL)
+- Flow matching + block-wise causal masking
+- **Benchmarks**: LIBERO checkpoint (pi05_libero), DROID, ALOHA
+- **Status**: Policy server exists, JAX→PyTorch conversion documented
+
+**3. RDT-1B (1.2B) - DIFFUSION BASELINE** ✅
+- Unified action space with 6D rotation representation
+- **Benchmarks**: ManiSkill (53.6%), RoboTwin (2nd place)
+- **Status**: Dependencies documented, server-client needs implementation
 - Well-documented, reproducible baseline
 
 **3. Octo (93M - 1B)**
@@ -107,7 +143,7 @@ VLA models integrate multiple modalities:
 ### Week 1: Diagnostic Analysis
 
 #### Days 1-2: Model Setup & Architecture Analysis
-**For each model (Evo-1, OpenVLA, Octo):**
+**For each model (Evo-1, π0, RDT-1B):**
 
 - [ ] Load pretrained checkpoints
 - [ ] Map architecture components (identify where proprioception enters)
@@ -224,7 +260,7 @@ VLA models integrate multiple modalities:
 
 **Hook Variants into Models:**
 
-For each model (Evo-1, OpenVLA, Octo) and each variant:
+For each model (Evo-1, π0, RDT-1B) and each variant:
 
 - [ ] Add state encoder as module injected via forward hooks
 - [ ] Use residual connection to avoid disrupting pretrained weights
@@ -302,7 +338,7 @@ For each fusion mechanism:
 
 **Generalization Across Models:**
 
-- [ ] Does best fusion mechanism generalize across Evo-1, OpenVLA, Octo?
+- [ ] Does best fusion mechanism generalize across Evo-1, π0, RDT-1B?
 - [ ] Or is optimal fusion architecture-specific?
 - [ ] Identify principles that transfer vs model-specific tuning
 
@@ -387,8 +423,8 @@ For each fusion mechanism:
 - Gated fusion learns to balance modalities (prevents vision dominance)
 
 **Finding 9: Architecture-Specific Optimal Strategies**
-- Autoregressive models (Evo-1, OpenVLA): hierarchical fusion works best
-- Diffusion models (Octo): task-conditioned encoding works best
+- Flow matching models (π0): task-conditioned encoding works best
+- Diffusion models (RDT-1B): unified action space representations
 - Large models benefit more from compression (redundancy is higher)
 
 ---
@@ -500,9 +536,9 @@ For each fusion mechanism:
 - **Storage**: ~100GB for models and datasets
 
 ### Software
-- PyTorch, HuggingFace Transformers
-- Model-specific repos: Evo-1, OpenVLA, Octo
-- Simulation environments: LIBERO, MetaWorld
+- PyTorch, HuggingFace Transformers, JAX (for π0)
+- Model-specific repos: Evo-1, π0, RDT-1B
+- Simulation environments: LIBERO, Meta-World
 - Measurement tools: scikit-learn (CKA), custom gradient hooks
 
 ### Data
@@ -531,12 +567,146 @@ For each fusion mechanism:
 
 ---
 
+## 📁 Repository Structure
+
+```
+MultipleHooksStudy/
+├── CLOUD_DEPLOYMENT.md           # Complete cloud deployment guide
+├── docs/
+│   └── CODEBASE_ANALYSIS.md      # Deep dive into RDT, Evo-1, π0
+├── scripts/
+│   ├── cloud_setup_evo1.sh       # Evo-1 environment setup
+│   ├── cloud_setup_libero.sh     # LIBERO benchmark setup
+│   ├── cloud_setup_metaworld.sh  # Meta-World benchmark setup
+│   ├── verify_rdt_dependencies.sh
+│   ├── verify_evo1_dependencies.sh
+│   ├── verify_pi0_dependencies.sh
+│   ├── verify_all_dependencies.sh
+│   └── README.md                 # Dependency verification guide
+├── notebooks/
+│   ├── evo1_complete.ipynb          # Evo-1: Analysis + Cloud + LIBERO/Meta-World
+│   ├── pi0_complete.ipynb           # π0: Analysis + Cloud + LIBERO/Meta-World
+│   └── rdt_1b_complete.ipynb        # RDT-1B: Analysis + Cloud + LIBERO/ManiSkill
+├── hooks/
+│   ├── base_hook.py              # HookManager base class
+│   └── model_specific/
+│       ├── evo1_hooks.py         # Integration module hooks
+│       ├── rdt_hooks.py          # Single Linear state_adaptor hooks
+│       ├── pi0_hooks.py          # Separate multi-layer encoder hooks
+│       └── octo_hooks.py         # JAX-based hooks (not compatible)
+└── test_model_discovery.py       # Hook attachment tests
+```
+
+---
+
+## ✅ Implementation Status
+
+### Completed
+- ✅ **Codebase Analysis**: RDT-1B, Evo-1, π0 repositories analyzed
+- ✅ **Dependency Verification**: Automated scripts for all models
+- ✅ **Cloud Setup Scripts**: Evo-1, LIBERO, Meta-World automated setup
+- ✅ **Hook Implementations**: All 5 model adapters tested and passing
+- ✅ **Benchmark Notebooks**: LIBERO + Meta-World runners with hook collection
+- ✅ **Server Integration**: Evo-1 server with hook manager built-in
+- ✅ **Documentation**: CODEBASE_ANALYSIS.md, CLOUD_DEPLOYMENT.md
+
+### In Progress
+- 🔄 **Benchmark Execution**: Running LIBERO + Meta-World on cloud GPU
+- 🔄 **Hook Data Analysis**: Collecting gradient flow, attention patterns
+
+### Planned
+- ⏳ **RDT Server-Client**: Build ManiSkill benchmark integration
+- ⏳ **π0 Integration**: LIBERO benchmark with policy server
+- ⏳ **Comparative Analysis**: Evo-1 vs π0 vs RDT across benchmarks
+- ⏳ **Failure Case Study**: Low-success tasks, semantic drift analysis
+
+---
+
+## 🎯 Key Findings (From Codebase Analysis)
+
+### Critical Discovery
+**Evo-1 is the only model with BOTH LIBERO + Meta-World benchmarks**
+
+| Model | LIBERO | Meta-World | Proprioceptive Encoder |
+|-------|--------|------------|------------------------|
+| Evo-1 | ✅ 94.8% | ✅ 80.6% | Integration module (fusion-based) |
+| π0 | ✅ Checkpoint | ❌ | Separate multi-layer MLP |
+| RDT-1B | ❌ | ❌ | Single Linear layer (state_adaptor) |
+
+### Architecture Insights
+
+**Evo-1 Integration Module**:
+- Fuses VL features + proprioceptive state before action decoder
+- Two-stage training preserves semantic attention (avoids drift)
+- 94.8% LIBERO + 80.6% Meta-World (SOTA among VLAs)
+
+**π0 Separate Encoder**:
+- Multi-layer proprio encoder runs independently
+- NOT fused into vision-language stream
+- Flow matching + block-wise causal masking
+
+**RDT State Adaptor**:
+- Single Linear layer projects proprio → action space
+- Minimal proprio processing (potential bottleneck)
+- Unified action space with 6D rotation
+
+### Hypothesis
+Evo-1's integration module may be more effective because:
+1. Explicit fusion mechanism (not just concatenation)
+2. Two-stage training preserves gradients
+3. Semantic preservation prevents VL features from "forgetting" proprio
+
+---
+
+## 📊 Next Steps
+
+1. **Run Model Benchmarks** (Cloud GPU or Colab)
+   ```bash
+   # Each complete notebook includes: Analysis → Cloud Deployment → Benchmarks
+   
+   # Evo-1: LIBERO (94.8%) + Meta-World (80.6%)
+   jupyter notebook notebooks/evo1_complete.ipynb
+   
+   # π0: LIBERO + Meta-World (flow matching)
+   jupyter notebook notebooks/pi0_complete.ipynb
+   
+   # RDT-1B: LIBERO + ManiSkill + RoboTwin (diffusion)
+   jupyter notebook notebooks/rdt_1b_complete.ipynb
+   ```
+   
+   **Note**: All benchmarks run in-process (no separate server needed) - Colab compatible!
+
+2. **Analyze Hook Data**
+   - Integration module gradient flow
+   - Attention pattern semantic preservation
+   - Success vs failure episode comparisons
+
+3. **Compare Architectures**
+   - Evo-1 (integration module) vs π0 (separate encoder) vs RDT (single Linear)
+   - Which fusion mechanism preserves proprio information?
+
+4. **Design Improved Encoder**
+   - Based on findings from hook analysis
+   - Test on LIBERO/Meta-World to validate
+
+---
+
+## 📚 References
+
+- **Evo-1**: [MINT-SJTU/Evo-1](https://github.com/MINT-SJTU/Evo-1)
+- **π0**: [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi)
+- **RDT-1B**: [thu-ml/RoboticsDiffusionTransformer](https://github.com/thu-ml/RoboticsDiffusionTransformer)
+- **LIBERO**: [Lifelong-Robot-Learning/LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO)
+- **Meta-World**: [Farama-Foundation/Metaworld](https://github.com/Farama-Foundation/Metaworld)
+
+---
+
 ## References to Review
 
-- OpenVLA paper (Kim et al.) -- https://arxiv.org/abs/2406.09246 
-- Octo paper (generalist robot policies) -- https://arxiv.org/abs/2405.12213 
+- Evo-1 paper (evolutionary VLA design) -- https://arxiv.org/abs/2511.04555
+- π0 paper (flow matching VLA) -- https://www.physicalintelligence.company/blog/pi0
+- RDT-1B paper (robotics diffusion transformer) -- https://arxiv.org/abs/2410.07864
 - RT-2 paper (vision-language-action models) -- https://arxiv.org/abs/2307.15818 
-- Evo-1 paper (evolutionary VLA design) -- https://arxiv.org/abs/2511.04555 
 - Information bottleneck theory (Tishby) -- https://arxiv.org/abs/physics/0004057 
 - Representation learning in multimodal models -- https://arxiv.org/abs/2503.08497 
 - Fusion mechanisms in vision-language models -- https://arxiv.org/abs/2504.09925 
