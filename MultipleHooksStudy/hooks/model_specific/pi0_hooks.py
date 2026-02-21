@@ -47,11 +47,12 @@ class Pi0Hooks:
         
         # Model components
         self.vision_encoder = None
-        self.proprio_encoder = None  # Separate multi-layer encoder
-        self.proprio_encoder_layers = None
+        self.state_proj = None  # State projection layer (Linear in π0)
+        self.action_in_proj = None  # Action input projection
+        self.action_out_proj = None  # Action output projection
         self.language_encoder = None
-        self.causal_attention_layers = None  # Layers with causal masking
-        self.flow_matching_layers = None
+        self.paligemma = None  # PaliGemma backbone
+        self.gemma_expert = None  # Expert Gemma for actions
         self.transformer_layers = None
     
     def discover_model_structure(self) -> Dict[str, Any]:
@@ -64,262 +65,170 @@ class Pi0Hooks:
         structure = {
             "model_name": "π0 (Pi0)",
             "has_proprio_encoder": True,
-            "proprio_encoder_type": "separate+causal",
+            "proprio_encoder_type": "linear_projection",  # π0 uses single Linear layer
             "components": {}
         }
         
-        # Vision encoder
-        for attr in ['vision_encoder', 'image_encoder', 'visual_encoder', 'vision_backbone']:
+        # Check for PaliGemma with Expert wrapper (actual π0 structure)
+        for attr in ['paligemma_with_expert', 'model']:
             if hasattr(self.model, attr):
-                self.vision_encoder = getattr(self.model, attr)
-                structure["components"]["vision_encoder"] = attr
+                wrapper = getattr(self.model, attr)
+                if hasattr(wrapper, 'paligemma'):
+                    self.paligemma = wrapper.paligemma
+                    structure["components"]["paligemma"] = f"{attr}.paligemma"
+                if hasattr(wrapper, 'gemma_expert'):
+                    self.gemma_expert = wrapper.gemma_expert
+                    structure["components"]["gemma_expert"] = f"{attr}.gemma_expert"
                 break
         
-        # Proprio encoder (separate multi-layer)
-        for attr in ['proprio_encoder', 'state_encoder', 'robot_encoder', 'physical_state_encoder']:
+        # State projection (π0's actual state encoder - single Linear layer)
+        for attr in ['state_proj', 'proprio_proj', 'state_encoder']:
             if hasattr(self.model, attr):
-                self.proprio_encoder = getattr(self.model, attr)
-                structure["components"]["proprio_encoder"] = attr
-                
-                # Extract layers from encoder
-                self._extract_encoder_layers()
-                structure["proprio_encoder_layers"] = len(self.proprio_encoder_layers) if self.proprio_encoder_layers else 0
+                self.state_proj = getattr(self.model, attr)
+                structure["components"]["state_proj"] = attr
+                if isinstance(self.state_proj, nn.Linear):
+                    structure["state_proj_architecture"] = "single_linear"
+                    structure["state_input_dim"] = self.state_proj.in_features
+                    structure["state_output_dim"] = self.state_proj.out_features
                 break
         
-        # Language encoder
-        for attr in ['language_encoder', 'text_encoder', 'language_model', 'instruction_encoder']:
+        # Action projections
+        for attr in ['action_in_proj', 'action_input_proj']:
             if hasattr(self.model, attr):
-                self.language_encoder = getattr(self.model, attr)
-                structure["components"]["language_encoder"] = attr
+                self.action_in_proj = getattr(self.model, attr)
+                structure["components"]["action_in_proj"] = attr
                 break
         
-        # Main transformer/backbone
-        for attr in ['transformer', 'backbone', 'model', 'decoder']:
+        for attr in ['action_out_proj', 'action_output_proj']:
             if hasattr(self.model, attr):
-                transformer = getattr(self.model, attr)
-                if hasattr(transformer, 'layers') or hasattr(transformer, 'blocks'):
-                    self.transformer_layers = getattr(transformer, 'layers', None) or getattr(transformer, 'blocks')
-                    structure["components"]["transformer"] = f"{attr}.layers"
-                    structure["num_transformer_layers"] = len(self.transformer_layers)
-                    
-                    # Find causal attention layers
-                    self._find_causal_attention_layers()
-                    structure["num_causal_layers"] = len(self.causal_attention_layers) if self.causal_attention_layers else 0
-                    break
-        
-        # Flow matching components
-        for attr in ['flow_matcher', 'action_head', 'flow_network']:
-            if hasattr(self.model, attr):
-                self.flow_matching_layers = getattr(self.model, attr)
-                structure["components"]["flow_matching"] = attr
+                self.action_out_proj = getattr(self.model, attr)
+                structure["components"]["action_out_proj"] = attr
                 break
+        
+        # Vision encoder (from PaliGemma)
+        if self.paligemma and hasattr(self.paligemma, 'model'):
+            if hasattr(self.paligemma.model, 'vision_tower'):
+                self.vision_encoder = self.paligemma.model.vision_tower
+                structure["components"]["vision_encoder"] = "paligemma.model.vision_tower"
+        
+        # Language encoder (from PaliGemma)
+        if self.paligemma and hasattr(self.paligemma, 'model'):
+            if hasattr(self.paligemma.model, 'language_model'):
+                self.language_encoder = self.paligemma.model.language_model
+                structure["components"]["language_encoder"] = "paligemma.model.language_model"
         
         return structure
     
-    def _extract_encoder_layers(self):
-        """Extract individual layers from separate proprio encoder."""
-        if self.proprio_encoder is None:
-            return
-        
-        self.proprio_encoder_layers = []
-        
-        # Check for transformer-style layers
-        if hasattr(self.proprio_encoder, 'layers'):
-            self.proprio_encoder_layers = list(self.proprio_encoder.layers)
-        elif hasattr(self.proprio_encoder, 'blocks'):
-            self.proprio_encoder_layers = list(self.proprio_encoder.blocks)
-        # Check if it's a Sequential
-        elif isinstance(self.proprio_encoder, nn.Sequential):
-            self.proprio_encoder_layers = list(self.proprio_encoder.children())
-        else:
-            # Try to find transformer blocks in encoder
-            for name, module in self.proprio_encoder.named_modules():
-                if 'layer' in name.lower() or 'block' in name.lower():
-                    # Avoid duplicates - only add direct children
-                    if '.' not in name or name.count('.') == 1:
-                        self.proprio_encoder_layers.append(module)
-    
-    def _find_causal_attention_layers(self):
-        """Find transformer layers that use causal masking."""
-        if self.transformer_layers is None:
-            return
-        
-        self.causal_attention_layers = []
-        
-        for i, layer in enumerate(self.transformer_layers):
-            # Check for causal attention indicators
-            has_causal = False
-            
-            # Check layer attributes
-            if hasattr(layer, 'causal') and layer.causal:
-                has_causal = True
-            elif hasattr(layer, 'is_causal') and layer.is_causal:
-                has_causal = True
-            
-            # Check attention module
-            attn = None
-            if hasattr(layer, 'self_attn'):
-                attn = layer.self_attn
-            elif hasattr(layer, 'attn'):
-                attn = layer.attn
-            
-            if attn:
-                if hasattr(attn, 'causal') and attn.causal:
-                    has_causal = True
-                elif hasattr(attn, 'is_causal') and attn.is_causal:
-                    has_causal = True
-            
-            if has_causal:
-                self.causal_attention_layers.append((i, layer))
-        
-        # If no explicit causal markers, assume later layers use causal
-        # (π0 uses block-wise causal masking)
-        if not self.causal_attention_layers and self.transformer_layers:
-            # Assume second half of layers use causal masking
-            mid_point = len(self.transformer_layers) // 2
-            self.causal_attention_layers = [
-                (i, layer) 
-                for i, layer in enumerate(self.transformer_layers[mid_point:], start=mid_point)
-            ]
-    
     def attach_gradient_hooks(self):
         """Attach gradient flow analysis hooks."""
-        if self.proprio_encoder is None:
+        if self.state_proj is None:
             self.discover_model_structure()
         
         # Attach encoder-level tracking
         self.gradient_analyzer.setup_encoder_tracking(
             vision_encoder=self.vision_encoder,
             language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder
+            proprio_encoder=self.state_proj  # Pass state_proj as proprio_encoder
         )
         
-        # CRITICAL: Layer-wise profiling of separate proprio encoder
-        # This is key for π0 - see gradient flow through each encoder layer
-        if self.proprio_encoder_layers:
+        # Profile state projection layer (π0's state encoder)
+        if self.state_proj:
             self.gradient_analyzer.setup_layer_profiling(
-                "proprio_encoder",
-                self.proprio_encoder_layers,
-                [f"proprio_layer_{i}" for i in range(len(self.proprio_encoder_layers))]
+                "state_proj",
+                [self.state_proj],
+                ["state_proj"]
             )
         
-        # Profile causal attention layers
-        if self.causal_attention_layers:
-            causal_modules = [layer for _, layer in self.causal_attention_layers]
-            causal_names = [f"causal_layer_{i}" for i, _ in self.causal_attention_layers]
-            
+        # Profile action projections
+        if self.action_in_proj and self.action_out_proj:
             self.gradient_analyzer.setup_layer_profiling(
-                "causal_attention",
-                causal_modules[:6],  # First 6 causal layers
-                causal_names[:6]
+                "action_projections",
+                [self.action_in_proj, self.action_out_proj],
+                ["action_in_proj", "action_out_proj"]
             )
     
     def attach_representation_hooks(self):
         """Attach representation quality analysis hooks."""
-        if self.proprio_encoder is None:
+        if self.state_proj is None:
             self.discover_model_structure()
         
-        # Standard encoder setup
+        # Standard setup for encoders
         self.representation_analyzer.setup(
             vision_encoder=self.vision_encoder,
             language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder
+            proprio_encoder=self.state_proj  # Pass state_proj as proprio_encoder
         )
         
-        # ADDITIONAL: Extract features at each layer of separate encoder
-        # Critical for π0 - understand what separate encoder learns
-        if self.proprio_encoder_layers:
-            for i, layer in enumerate(self.proprio_encoder_layers):
-                self.representation_analyzer.feature_extractor.attach(
-                    layer,
-                    name=f"proprio_encoder_layer_{i}"
-                )
+        # Extract features from state projection output
+        if self.state_proj:
+            self.representation_analyzer.feature_extractor.attach(
+                self.state_proj,
+                name="state_proj_output"
+            )
     
-    def attach_ablation_hooks(self):
-        """Attach ablation hooks."""
-        if self.proprio_encoder is None:
+    def _create_zero_output_hook(self, module):
+        """Create a hook that zeros out module output for ablation studies."""
+        def hook(module, input, output):
+            return torch.zeros_like(output)
+        return hook
+    
+    def attach_ablation_hooks(self, ablation_type: str = "zero_state"):
+        """Attach ablation study hooks."""
+        if self.state_proj is None:
             self.discover_model_structure()
         
-        self.ablation_coordinator.setup(
-            vision_encoder=self.vision_encoder,
-            language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder,
-            ablation_type="zero"
-        )
-        
-        # ADDITIONAL: Test causal masking
-        # Can we ablate causal attention and measure impact?
-        if self.causal_attention_layers:
-            # Register first causal layer for ablation testing
-            first_causal_idx, first_causal_layer = self.causal_attention_layers[0]
-            self.ablation_coordinator.ablation_manager.register_encoder(
-                f"causal_layer_{first_causal_idx}",
-                first_causal_layer
+        if ablation_type == "zero_state":
+            # Zero out state projection output
+            self.ablation_coordinator.register_ablation(
+                "zero_state_proj_output",
+                self._create_zero_output_hook(self.state_proj)
             )
     
     def attach_utilization_hooks(self):
-        """Attach downstream utilization tracking hooks."""
-        if self.transformer_layers is None:
+        """Attach downstream utilization analysis hooks."""
+        if self.state_proj is None:
             self.discover_model_structure()
         
-        # CRITICAL: Track attention in causal layers
-        # π0's causal masking is key architectural feature
-        if self.causal_attention_layers:
-            for layer_idx, layer in self.causal_attention_layers:
-                attn_module = None
-                if hasattr(layer, 'self_attn'):
-                    attn_module = layer.self_attn
-                elif hasattr(layer, 'attn'):
-                    attn_module = layer.attn
-                
-                if attn_module:
-                    self.utilization_analyzer.attention_tracker.attach(
-                        attn_module,
-                        name=f"causal_attn_{layer_idx}"
-                    )
+        # Track how state projection features are used downstream
+        # Note: π0 uses flow matching, so downstream layers may be in gemma_expert
+        downstream = None
+        if self.gemma_expert and hasattr(self.gemma_expert, 'model'):
+            if hasattr(self.gemma_expert.model, 'layers'):
+                downstream = self.gemma_expert.model.layers
         
-        # Set modality ranges for attention tracking
-        modality_ranges = self.get_modality_token_ranges()
-        self.utilization_analyzer.attention_tracker.set_modality_ranges(modality_ranges)
+        self.utilization_analyzer.setup(
+            encoder=self.state_proj,
+            downstream_layers=downstream
+        )
         
-        # Feature similarity across proprio encoder layers
-        if self.proprio_encoder_layers:
-            for i, layer in enumerate(self.proprio_encoder_layers):
-                self.utilization_analyzer.similarity_tracker.attach(
-                    layer,
-                    name=f"proprio_layer_{i}"
-                )
-        
-        # Mutual information with action
-        # π0 uses flow matching, so track MI between proprio features and action
-        if self.proprio_encoder:
+        # Track mutual information between state features and action
+        if self.state_proj:
             self.utilization_analyzer.mi_estimator.attach_feature_extractor(
-                self.proprio_encoder,
-                name="proprio_features"
+                self.state_proj,
+                name="state_features"
             )
     
     def get_modality_token_ranges(self) -> Dict[str, tuple]:
         """
         Get token index ranges for each modality in π0.
         
-        π0 uses separate encoding then concatenation with causal masking.
+        π0 uses PaliGemma with state projection - tokens are fused in transformer.
         
         Returns:
             Dict with (start, end) ranges
         """
-        # π0 configuration:
-        # Vision: ViT patches
-        # Proprio: Separate encoder output (sequence of tokens)
-        # Language: Instruction tokens
-        # Order may vary - π0 uses block-wise masking
+        # π0 (π0.5-DROID) configuration:
+        # Vision: PaliGemma ViT patches (typically 256 patches)
+        # State: Single projection layer output (1 token or few tokens)
+        # Language: Instruction tokens from PaliGemma
         
-        vision_tokens = 196
-        proprio_tokens = 16  # Separate encoder outputs a sequence
+        vision_tokens = 256  # PaliGemma default
+        state_tokens = 1     # Single state projection
         
         ranges = {
             "vision": (0, vision_tokens),
-            "proprio": (vision_tokens, vision_tokens + proprio_tokens),
-            "language": (vision_tokens + proprio_tokens, -1)
+            "state": (vision_tokens, vision_tokens + state_tokens),
+            "language": (vision_tokens + state_tokens, -1)
         }
         
         return ranges
@@ -342,27 +251,26 @@ class Pi0Hooks:
         
         report = {
             "model_structure": structure,
-            "note": "π0 uses separate encoder + causal masking - most advanced proprio encoding",
+            "note": "π0 uses PaliGemma + Expert Gemma with state_proj Linear layer",
             "analysis_focus": [
-                "Gradient flow through separate proprio encoder layers",
-                "Representation evolution across encoder (Layer 0 → Layer N)",
-                "CKA: Does separate encoder learn distinct features from vision?",
-                "Attention patterns in causal layers: proprio vs vision",
-                "MI(proprio_features, actions) via MINE",
-                "Ablation: Full encoder vs No-causal vs No-proprio"
+                "Gradient flow through state_proj layer",
+                "Representation quality of state encoding",
+                "CKA: State vs Vision features",
+                "Attention patterns in expert model",
+                "MI(state_features, actions) via MINE",
+                "Ablation: With state vs Without state"
             ],
             "key_questions": [
-                "Does separate encoder learn meaningful proprio representations?",
-                "How does block-wise causal masking affect proprio utilization?",
-                "Do later encoder layers add value beyond early layers?",
-                "Is proprio→action MI higher than vision→action MI?",
-                "What happens when causal masking is removed?"
+                "Does state_proj learn meaningful representations?",
+                "How does flow matching utilize state features?",
+                "Is state→action MI higher than vision→action MI?",
+                "What happens when state input is zeroed?"
             ],
             "architectural_features": {
-                "separate_encoder": True,
-                "causal_masking": "block-wise",
-                "action_generation": "flow matching",
-                "conditioning": "asymmetric"
+                "vision_encoder": "PaliGemma",
+                "state_encoder": "Single Linear projection",
+                "action_generation": "Flow matching (Expert Gemma)",
+                "conditioning": "Proprioceptive state"
             }
         }
         
@@ -377,38 +285,29 @@ class Pi0Hooks:
         """
         summary = {}
         
-        # Proprio encoder layer-wise gradients
+        # State projection gradients
         if self.gradient_analyzer.layer_profilers:
-            encoder_profiler = self.gradient_analyzer.layer_profilers.get("proprio_encoder")
-            if encoder_profiler:
-                summary["encoder_gradients"] = {
-                    "layer_norms": encoder_profiler.get_summary(),
-                    "vanishing_point": encoder_profiler.find_vanishing_point()
-                }
+            state_profiler = self.gradient_analyzer.layer_profilers.get("state_proj")
+            if state_profiler:
+                summary["state_proj_gradients"] = state_profiler.get_summary()
             
-            causal_profiler = self.gradient_analyzer.layer_profilers.get("causal_attention")
-            if causal_profiler:
-                summary["causal_gradients"] = causal_profiler.get_summary()
+            action_profiler = self.gradient_analyzer.layer_profilers.get("action_projections")
+            if action_profiler:
+                summary["action_proj_gradients"] = action_profiler.get_summary()
         
-        # Representation progression through encoder
+        # State representation features
         if self.representation_analyzer.feature_extractor.features:
-            encoder_features = {
+            state_features = {
                 name: feats
                 for name, feats in self.representation_analyzer.feature_extractor.features.items()
-                if "proprio_encoder_layer" in name
+                if "state_proj" in name
             }
-            if encoder_features:
-                summary["encoder_layer_features"] = list(encoder_features.keys())
+            if state_features:
+                summary["state_features"] = list(state_features.keys())
         
-        # Causal attention patterns
+        # Attention patterns (from expert model if available)
         if self.utilization_analyzer.attention_tracker.results:
-            causal_attention = {
-                name: result
-                for name, result in self.utilization_analyzer.attention_tracker.results.items()
-                if "causal" in name
-            }
-            if causal_attention:
-                summary["causal_attention_patterns"] = self.utilization_analyzer.attention_tracker.compute_modality_attention()
+            summary["attention_patterns"] = self.utilization_analyzer.attention_tracker.compute_modality_attention()
         
         # MI estimation
         if hasattr(self.utilization_analyzer.mi_estimator, 'mi_estimates'):
@@ -434,33 +333,21 @@ class Pi0Hooks:
         print("π0 (PI0) MODEL STRUCTURE")
         print("=" * 80)
         print(f"Model: {structure['model_name']}")
-        print(f"Has Proprioceptive Encoder: {structure['has_proprio_encoder']}")
-        print(f"Proprio Encoder Type: {structure.get('proprio_encoder_type', 'unknown')}")
+        print(f"Has State Encoder: {structure['has_proprio_encoder']}")
+        print(f"State Encoder Type: {structure.get('proprio_encoder_type', 'unknown')}")
         
         print("\nDiscovered Components:")
         for comp_name, attr_name in structure["components"].items():
             print(f"  - {comp_name}: model.{attr_name}")
         
-        print(f"\nProprio Encoder Details:")
-        print(f"  - Encoder Type: Separate multi-layer encoder")
-        print(f"  - Number of Layers: {structure.get('proprio_encoder_layers', 0)}")
-        
-        if self.proprio_encoder_layers:
-            print("\n  Encoder Layer Structure:")
-            for i, layer in enumerate(self.proprio_encoder_layers[:5]):  # Show first 5
-                print(f"    - Layer {i}: {type(layer).__name__}")
-        
-        if self.transformer_layers:
-            print(f"\nTransformer Layers: {len(self.transformer_layers)}")
-        
-        if self.causal_attention_layers:
-            print(f"Causal Attention Layers: {len(self.causal_attention_layers)}")
-            causal_indices = [idx for idx, _ in self.causal_attention_layers]
-            print(f"  - Layer indices: {causal_indices[:10]}...")  # Show first 10
+        print(f"\nState Encoder Details:")
+        print(f"  - Type: Single Linear projection (state_proj)")
+        print(f"  - Architecture: PaliGemma + Expert Gemma with flow matching")
         
         print("\nArchitectural Features:")
-        print("  - Fusion: Block-wise causal masking")
-        print("  - Action Generation: Flow matching")
-        print("  - Conditioning: Asymmetric (action conditioned on state)")
-        print("\nKey Advantage: Dedicated encoder learns proprio-specific representations")
+        print("  - Vision: PaliGemma ViT encoder")
+        print("  - State: Linear projection to embedding space")
+        print("  - Action Generation: Flow matching with Expert Gemma")
+        print("  - Model: π0.5-DROID (3.3B parameters)")
+        print("\nKey Feature: Lightweight state encoding via single projection layer")
         print("=" * 80)

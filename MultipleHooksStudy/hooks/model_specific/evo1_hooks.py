@@ -1,20 +1,24 @@
 """
 Evo-1 specific hook implementations.
 
-Evo-1 Architecture:
+Evo-1 Architecture (VERIFIED from MINT-SJTU/Evo-1 repository):
 - Input: {Images, Language, State}
-- Vision-Language Backbone: InternVL3-1B (pretrained VLM)
-- Integration Module: Aligns VL features + proprioceptive state
-- Cross-Modulated Diffusion Transformer: Generates actions
+- embedder: InternVL3Embedder (InternVL3-1B VL backbone) - processes images+text → fused_tokens
+- action_head: FlowmatchingActionHead - generates actions via flow matching diffusion
+  - Contains internal state_encoder: CategorySpecificMLP (state → embeddings)
+  - Transformer blocks process action tokens with fused_tokens + state embeddings as context
+  - MLP head outputs final actions
 - Output: Action
 
-Key Research Insight:
-Two-stage training preserves semantic attention patterns, avoiding semantic drift.
-This is critical for VLA performance.
+Key Implementation Detail:
+State encoding happens INSIDE action_head via state_encoder (CategorySpecificMLP),
+NOT in a separate integration module. The state encoder is a simple 3-layer MLP
+that projects proprioceptive state to the same embedding dimension as VL features.
 
 References:
 - Paper: https://arxiv.org/abs/2512.06951
 - GitHub: https://github.com/MINT-SJTU/Evo-1
+- Actual implementation: Evo_1/scripts/Evo1.py, Evo_1/model/action_head/flow_matching.py
 """
 
 from typing import Dict, Any, List, Optional
@@ -39,13 +43,10 @@ class Evo1Hooks:
         self.ablation_coordinator = AblationStudyCoordinator()
         self.utilization_analyzer = DownstreamUtilizationAnalyzer()
         
-        # Model components
-        self.vl_backbone = None  # InternVL3-1B
-        self.vision_encoder = None  # Vision part of VL backbone
-        self.language_encoder = None  # Language part of VL backbone
-        self.integration_module = None  # Aligns VL + state
-        self.diffusion_transformer = None  # Action generation
-        self.proprio_encoder = None  # State encoding (if separate)
+        # Model components (verified from actual Evo-1 implementation)
+        self.embedder = None  # InternVL3Embedder (VL backbone)
+        self.action_head = None  # FlowmatchingActionHead (diffusion-based action generation)
+        self.state_encoder = None  # action_head.state_encoder (CategorySpecificMLP)
     
     def discover_model_structure(self) -> Dict[str, Any]:
         """
@@ -57,189 +58,146 @@ class Evo1Hooks:
         structure = {
             "model_name": "Evo-1",
             "has_proprio_encoder": True,
-            "proprio_encoder_type": "integration_module",
-            "architecture_type": "vl_backbone+integration+diffusion",
+            "proprio_encoder_type": "state_encoder_in_action_head",
+            "architecture_type": "embedder+action_head",
             "components": {}
         }
         
-        # Try to find VL backbone (InternVL3-1B)
-        for attr in ['vl_backbone', 'vision_language_backbone', 'internvl', 'backbone', 'vlm']:
+        # Find embedder (InternVL3Embedder - VL backbone)
+        for attr in ['embedder', 'vl_backbone', 'vision_language_backbone', 'internvl', 'vlm']:
             if hasattr(self.model, attr):
-                self.vl_backbone = getattr(self.model, attr)
-                structure["components"]["vl_backbone"] = attr
+                self.embedder = getattr(self.model, attr)
+                structure["components"]["embedder"] = attr
+                break
+        
+        # Find action_head (FlowmatchingActionHead)
+        for attr in ['action_head', 'policy_head', 'diffusion_transformer', 'diffusion', 'action_decoder']:
+            if hasattr(self.model, attr):
+                self.action_head = getattr(self.model, attr)
+                structure["components"]["action_head"] = attr
                 
-                # Try to extract vision and language components from VL backbone
-                if hasattr(self.vl_backbone, 'vision_model'):
-                    self.vision_encoder = self.vl_backbone.vision_model
-                    structure["components"]["vision_encoder"] = f"{attr}.vision_model"
-                elif hasattr(self.vl_backbone, 'vision_tower'):
-                    self.vision_encoder = self.vl_backbone.vision_tower
-                    structure["components"]["vision_encoder"] = f"{attr}.vision_tower"
-                
-                if hasattr(self.vl_backbone, 'language_model'):
-                    self.language_encoder = self.vl_backbone.language_model
-                    structure["components"]["language_encoder"] = f"{attr}.language_model"
-                elif hasattr(self.vl_backbone, 'llm'):
-                    self.language_encoder = self.vl_backbone.llm
-                    structure["components"]["language_encoder"] = f"{attr}.llm"
+                # Extract state_encoder from inside action_head
+                if hasattr(self.action_head, 'state_encoder'):
+                    self.state_encoder = self.action_head.state_encoder
+                    structure["components"]["state_encoder"] = f"{attr}.state_encoder"
+                    structure["state_encoder_found"] = True
+                else:
+                    structure["state_encoder_found"] = False
+                    structure["warning"] = "state_encoder not found in action_head"
                 
                 break
         
-        # If VL backbone not found as single component, try separate vision/language
-        if self.vision_encoder is None:
-            for attr in ['vision_encoder', 'vision_model', 'image_encoder', 'visual_encoder']:
-                if hasattr(self.model, attr):
-                    self.vision_encoder = getattr(self.model, attr)
-                    structure["components"]["vision_encoder"] = attr
-                    break
-        
-        if self.language_encoder is None:
-            for attr in ['language_model', 'llm', 'text_encoder', 'language_encoder']:
-                if hasattr(self.model, attr):
-                    self.language_encoder = getattr(self.model, attr)
-                    structure["components"]["language_encoder"] = attr
-                    break
-        
-        # Try to find integration module (critical for Evo-1)
-        # This module aligns VL features + proprioceptive state
-        for attr in ['integration_module', 'integration', 'align_module', 'fusion_module', 
-                     'state_integrator', 'vl_state_align']:
-            if hasattr(self.model, attr):
-                self.integration_module = getattr(self.model, attr)
-                structure["components"]["integration_module"] = attr
-                structure["integration_module_found"] = True
-                break
-        
-        # Try to find diffusion transformer (action generation)
-        for attr in ['diffusion_transformer', 'diffusion', 'action_head', 'policy_head',
-                     'transformer', 'action_decoder']:
-            if hasattr(self.model, attr):
-                diffusion_module = getattr(self.model, attr)
-                # Check if it's actually a diffusion model
-                if any(keyword in str(type(diffusion_module)).lower() 
-                       for keyword in ['diffusion', 'dit', 'transformer']):
-                    self.diffusion_transformer = diffusion_module
-                    structure["components"]["diffusion_transformer"] = attr
-                    break
-        
-        # Try to find separate proprioceptive encoder (might not exist if integrated)
-        for attr in ['proprio_encoder', 'state_encoder', 'robot_state_encoder']:
-            if hasattr(self.model, attr):
-                self.proprio_encoder = getattr(self.model, attr)
-                structure["components"]["proprio_encoder"] = attr
-                break
-        
-        # Mark integration module as the effective proprio encoder if no separate encoder found
-        if self.proprio_encoder is None and self.integration_module is not None:
-            self.proprio_encoder = self.integration_module
-            structure["components"]["effective_proprio_encoder"] = "integration_module"
+        # Verify we found the expected components
+        if self.embedder is None:
+            structure["warning"] = "embedder (VL backbone) not found - check model attribute naming"
+        if self.action_head is None:
+            structure["warning"] = "action_head not found - check model attribute naming"
         
         return structure
     
     def attach_gradient_hooks(self):
         """Attach gradient flow analysis hooks."""
-        if self.vl_backbone is None and self.vision_encoder is None:
+        if self.embedder is None:
             self.discover_model_structure()
         
-        # Attach encoder-level tracking for VL backbone components
-        self.gradient_analyzer.setup_encoder_tracking(
-            vision_encoder=self.vision_encoder,
-            language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder  # Integration module
-        )
-        
-        # CRITICAL: Track integration module gradients
-        # This is the key innovation in Evo-1 - how VL + state align
-        if self.integration_module:
+        # Profile state_encoder (CategorySpecificMLP inside action_head)
+        # This is the actual proprioceptive encoder in Evo-1
+        if self.state_encoder:
+            self.gradient_analyzer.setup_encoder_tracking(
+                vision_encoder=None,  # embedder is monolithic VL model
+                language_encoder=None,
+                proprio_encoder=self.state_encoder
+            )
+            
+            # Additional layer-level profiling for state_encoder
             self.gradient_analyzer.setup_layer_profiling(
-                "integration_module",
-                [self.integration_module],
-                ["integration"]
+                "state_encoder",
+                [self.state_encoder],
+                ["state_mlp"]
             )
         
-        # Profile diffusion transformer if available
-        if self.diffusion_transformer:
-            # Try to get transformer layers/blocks
-            transformer_layers = None
-            for attr in ['layers', 'blocks', 'transformer_blocks']:
-                if hasattr(self.diffusion_transformer, attr):
-                    transformer_layers = getattr(self.diffusion_transformer, attr)
+        # Profile action_head transformer blocks
+        if self.action_head:
+            # Try to get transformer blocks from action_head
+            transformer_blocks = None
+            for attr in ['transformer_blocks', 'blocks', 'layers']:
+                if hasattr(self.action_head, attr):
+                    transformer_blocks = getattr(self.action_head, attr)
                     break
             
-            if transformer_layers:
-                # Sample first few layers for profiling
-                sample_layers = list(transformer_layers)[:6]
+            if transformer_blocks:
+                # Sample first few blocks for profiling (FlowmatchingActionHead typically has 8 layers)
+                sample_blocks = list(transformer_blocks)[:6]
                 self.gradient_analyzer.setup_layer_profiling(
-                    "diffusion_transformer",
-                    sample_layers,
-                    [f"diffusion_layer_{i}" for i in range(len(sample_layers))]
+                    "action_head_transformer",
+                    sample_blocks,
+                    [f"action_block_{i}" for i in range(len(sample_blocks))]
                 )
     
     def attach_representation_hooks(self):
         """Attach representation quality analysis hooks."""
-        if self.vl_backbone is None and self.vision_encoder is None:
+        if self.embedder is None:
             self.discover_model_structure()
         
-        # Standard setup for encoders
+        # Setup representation analyzer with state_encoder
         self.representation_analyzer.setup(
-            vision_encoder=self.vision_encoder,
-            language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder  # Integration module
+            vision_encoder=None,  # embedder is monolithic
+            language_encoder=None,
+            proprio_encoder=self.state_encoder
         )
         
-        # CRITICAL: Extract features from integration module output
-        # This shows how VL + state alignment affects representation quality
-        if self.integration_module:
+        # Extract features from state_encoder output
+        if self.state_encoder:
             self.representation_analyzer.feature_extractor.attach(
-                self.integration_module,
-                name="integration_output"
+                self.state_encoder,
+                name="state_encoder_output"
             )
         
-        # Extract features from diffusion output (final action representation)
-        if self.diffusion_transformer:
+        # Extract features from action_head output (final action representation)
+        if self.action_head:
             self.representation_analyzer.feature_extractor.attach(
-                self.diffusion_transformer,
-                name="diffusion_output"
+                self.action_head,
+                name="action_head_output"
             )
     
     def attach_ablation_hooks(self):
         """Attach ablation study hooks."""
-        if self.vl_backbone is None and self.vision_encoder is None:
+        if self.embedder is None:
             self.discover_model_structure()
         
-        # Standard ablation setup
+        # Setup ablation with state_encoder
         self.ablation_coordinator.setup(
-            vision_encoder=self.vision_encoder,
-            language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder
+            vision_encoder=None,
+            language_encoder=None,
+            proprio_encoder=self.state_encoder
         )
         
-        # ADDITIONAL: Ablate integration module
-        # Key research question: How critical is the integration module?
-        if self.integration_module:
+        # ADDITIONAL: Ablate state_encoder
+        # Key research question: How important is proprioceptive state encoding?
+        if self.state_encoder:
             self.ablation_coordinator.add_ablation_target(
-                name="integration_module",
-                module=self.integration_module,
+                name="state_encoder",
+                module=self.state_encoder,
                 ablation_types=['zero', 'noise', 'freeze']
             )
     
     def attach_utilization_hooks(self):
         """Attach downstream utilization analysis hooks."""
-        if self.vl_backbone is None and self.vision_encoder is None:
+        if self.embedder is None:
             self.discover_model_structure()
         
-        # Track which parts of VL backbone are used for action generation
+        # Track state_encoder utilization for action generation
         self.utilization_analyzer.setup(
-            vision_encoder=self.vision_encoder,
-            language_encoder=self.language_encoder,
-            proprio_encoder=self.proprio_encoder
+            vision_encoder=None,
+            language_encoder=None,
+            proprio_encoder=self.state_encoder
         )
         
-        # Track integration module utilization
-        if self.integration_module:
+        # Track state_encoder module directly
+        if self.state_encoder:
             self.utilization_analyzer.track_module(
-                self.integration_module,
-                name="integration_module"
+                self.state_encoder,
+                name="state_encoder"
             )
     
     def get_results(self) -> Dict[str, Any]:
@@ -257,42 +215,50 @@ class Evo1Hooks:
         Get Evo-1-specific research insights.
         
         Focus on:
-        1. Integration module effectiveness (VL + state alignment)
-        2. Semantic preservation (two-stage training impact)
-        3. Diffusion transformer utilization patterns
+        1. State encoder effectiveness (proprioceptive encoding via CategorySpecificMLP)
+        2. Action head patterns (flow matching diffusion for action generation)
+        3. State vs VL feature utilization balance
         """
         results = self.get_results()
         
         insights = {
-            "integration_module_analysis": {},
-            "semantic_preservation": {},
-            "diffusion_patterns": {}
+            "state_encoder_analysis": {},
+            "action_head_patterns": {},
+            "feature_utilization": {}
         }
         
-        # Analyze integration module
-        if "integration_module" in results.get("gradient_flow", {}).get("layer_profiles", {}):
-            integration_grads = results["gradient_flow"]["layer_profiles"]["integration_module"]
-            insights["integration_module_analysis"] = {
-                "gradient_magnitude": integration_grads.get("mean_gradient", 0),
-                "gradient_stability": integration_grads.get("gradient_variance", 0),
-                "critical_for_training": integration_grads.get("mean_gradient", 0) > 1e-4
+        # Analyze state_encoder (the actual proprio encoder)
+        if "state_encoder" in results.get("gradient_flow", {}).get("layer_profiles", {}):
+            state_grads = results["gradient_flow"]["layer_profiles"]["state_encoder"]
+            insights["state_encoder_analysis"] = {
+                "gradient_magnitude": state_grads.get("mean_gradient", 0),
+                "gradient_stability": state_grads.get("gradient_variance", 0),
+                "critical_for_training": state_grads.get("mean_gradient", 0) > 1e-4
             }
         
-        # Check representation quality from integration output
-        if "integration_output" in results.get("representation_quality", {}).get("features", {}):
-            integration_features = results["representation_quality"]["features"]["integration_output"]
-            insights["semantic_preservation"] = {
-                "feature_rank": integration_features.get("effective_rank", 0),
-                "condition_number": integration_features.get("condition_number", 0),
-                "well_conditioned": integration_features.get("condition_number", float('inf')) < 100
+        # Check representation quality from state_encoder output
+        if "state_encoder_output" in results.get("representation_quality", {}).get("features", {}):
+            state_features = results["representation_quality"]["features"]["state_encoder_output"]
+            insights["state_encoder_analysis"]["representation_quality"] = {
+                "feature_rank": state_features.get("effective_rank", 0),
+                "condition_number": state_features.get("condition_number", 0),
+                "well_conditioned": state_features.get("condition_number", float('inf')) < 100
             }
         
-        # Analyze diffusion transformer patterns
-        if "diffusion_transformer" in results.get("gradient_flow", {}).get("layer_profiles", {}):
-            diffusion_grads = results["gradient_flow"]["layer_profiles"]["diffusion_transformer"]
-            insights["diffusion_patterns"] = {
-                "layer_gradient_distribution": diffusion_grads,
-                "training_stability": "stable" if diffusion_grads.get("gradient_variance", 0) < 1.0 else "unstable"
+        # Analyze action_head transformer patterns
+        if "action_head_transformer" in results.get("gradient_flow", {}).get("layer_profiles", {}):
+            action_grads = results["gradient_flow"]["layer_profiles"]["action_head_transformer"]
+            insights["action_head_patterns"] = {
+                "layer_gradient_distribution": action_grads,
+                "training_stability": "stable" if action_grads.get("gradient_variance", 0) < 1.0 else "unstable"
+            }
+        
+        # Analyze feature utilization (state vs VL)
+        ablation_results = results.get("ablation_study", {})
+        if "state_encoder" in ablation_results:
+            insights["feature_utilization"]["state_importance"] = {
+                "performance_drop_when_ablated": ablation_results["state_encoder"],
+                "critical": ablation_results["state_encoder"].get("zero_ablation_impact", 0) > 0.1
             }
         
         return insights

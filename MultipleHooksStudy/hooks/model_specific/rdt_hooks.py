@@ -2,13 +2,14 @@
 RDT-1B Model-Specific Hooks
 
 Adapter for attaching hooks to RDT-1B (1.2B) model.
-RDT has an MLP proprioceptive encoder with Fourier features.
+RDT uses a single Linear layer (state_adaptor) for state encoding.
 
 Architecture:
-- Vision: ViT or CNN backbone
-- Proprio: Fourier features → MLP (multiple layers) → Concatenate
-- Language: Pre-trained language model
-- Fusion: Concatenate all modalities at transformer input
+- Vision: SigLIP encoder
+- State: state_adaptor (Linear layer, input_dim = state_token_dim * 2 for state + mask)
+- Language: T5-XXL encoder
+- Fusion: Concatenate all modalities at diffusion transformer input
+- Action: Diffusion-based action prediction
 """
 
 import torch
@@ -25,8 +26,9 @@ class RDTHooks:
     """
     Hook adapter for RDT-1B model.
     
-    RDT uses MLP state encoding with Fourier features:
-    - State → Fourier features → MLP (2-3 layers) → Concat to transformer
+    RDT uses a single Linear layer for state encoding:
+    - State (+ mask) → state_adaptor (Linear) → Concat to diffusion transformer
+    - Note: state_adaptor input_dim = state_token_dim * 2 (state + mask indicator)
     """
     
     def __init__(self, model):
@@ -69,9 +71,8 @@ class RDTHooks:
                 structure["components"]["vision_encoder"] = attr
                 break
         
-        # Proprio encoder (state_adaptor - single Linear layer in RDT-1B)
-        # Priority: state_adaptor (actual RDT-1B name), then fallbacks
-        for attr in ['state_adaptor', 'proprio_encoder', 'state_encoder', 'state_mlp', 'robot_state_encoder']:
+        # Note: Input dimension is state_token_dim * 2 (state + mask concatenated)
+        for attr in ['state_adaptor', 'proprio_encoder', 'state_encoder', 'robot_state_encoder']:
             if hasattr(self.model, attr):
                 self.proprio_encoder = getattr(self.model, attr)
                 structure["components"]["proprio_encoder"] = attr
@@ -81,6 +82,7 @@ class RDTHooks:
                     structure["proprio_encoder_architecture"] = "single_linear"
                     structure["proprio_input_dim"] = self.proprio_encoder.in_features
                     structure["proprio_output_dim"] = self.proprio_encoder.out_features
+                    structure["note"] = "Input includes state + mask (dim = state_token_dim * 2)"
                 break
         
         # Language encoder
@@ -161,22 +163,6 @@ class RDTHooks:
             proprio_encoder=self.proprio_encoder,
             ablation_type="zero"
         )
-        
-        # ADDITIONAL: Ablate individual MLP layers
-        # Test: Does removing Fourier features hurt more than removing final MLP layer?
-        if self.fourier_layer:
-            self.ablation_coordinator.ablation_manager.register_encoder(
-                "fourier_only",
-                self.fourier_layer
-            )
-        
-        if self.mlp_layers and len(self.mlp_layers) > 1:
-            # Register final MLP layer
-            final_name, final_layer = self.mlp_layers[-1]
-            self.ablation_coordinator.ablation_manager.register_encoder(
-                "final_mlp_layer",
-                final_layer
-            )
     
     def attach_utilization_hooks(self):
         """Attach downstream utilization tracking hooks."""
@@ -204,36 +190,28 @@ class RDTHooks:
         # Set modality ranges
         modality_ranges = self.get_modality_token_ranges()
         self.utilization_analyzer.attention_tracker.set_modality_ranges(modality_ranges)
-        
-        # Feature similarity across MLP layers
-        if self.mlp_layers:
-            for name, layer in self.mlp_layers:
-                self.utilization_analyzer.similarity_tracker.attach(
-                    layer,
-                    name=f"mlp_{name}"
-                )
     
     def get_modality_token_ranges(self) -> Dict[str, tuple]:
         """
         Get token index ranges for each modality in RDT.
         
-        RDT concatenates: [vision_tokens, proprio_tokens, language_tokens]
+        RDT concatenates: [vision_tokens, state_tokens, language_tokens]
         
         Returns:
             Dict with (start, end) ranges
         """
-        # Typical RDT configuration:
-        # Vision: ViT patches (e.g., 196 for 14x14)
-        # Proprio: MLP output (e.g., 8-16 tokens)
-        # Language: Variable length instruction
+        # RDT-1B configuration:
+        # Vision: SigLIP patches (typically 256 patches)
+        # State: state_adaptor output (1 token or few tokens)
+        # Language: T5-XXL encoded instruction tokens
         
-        vision_tokens = 196
-        proprio_tokens = 8  # MLP often outputs a sequence
+        vision_tokens = 256
+        state_tokens = 1  # Single state token from state_adaptor
         
         ranges = {
             "vision": (0, vision_tokens),
-            "proprio": (vision_tokens, vision_tokens + proprio_tokens),
-            "language": (vision_tokens + proprio_tokens, -1)
+            "state": (vision_tokens, vision_tokens + state_tokens),
+            "language": (vision_tokens + state_tokens, -1)
         }
         
         return ranges
@@ -256,20 +234,27 @@ class RDTHooks:
         
         report = {
             "model_structure": structure,
-            "note": "RDT uses MLP+Fourier state encoder - intermediate complexity",
+            "note": "RDT-1B uses single Linear layer (state_adaptor) for state encoding",
             "analysis_focus": [
-                "Layer-wise gradient flow through MLP (Fourier → Layer1 → Layer2 → ...)",
-                "Representation quality at each MLP layer",
-                "CKA similarity: Does MLP add structure beyond Fourier?",
-                "Ablation: Fourier-only vs Full MLP vs No-proprio",
-                "Attention to proprio tokens vs vision tokens"
+                "Gradient flow through state_adaptor layer",
+                "Representation quality of state encoding",
+                "CKA: State vs Vision features",
+                "Attention patterns in diffusion transformer",
+                "Ablation: With state vs Without state"
             ],
             "key_questions": [
-                "Do gradients vanish in MLP layers?",
-                "Does each MLP layer add meaningful representations?",
-                "Are Fourier features sufficient, or does MLP matter?",
-                "How much attention do proprio tokens receive?"
-            ]
+                "Does state_adaptor learn meaningful representations?",
+                "How does diffusion transformer utilize state features?",
+                "Is state→action coupling stronger than vision→action?",
+                "What happens when state input is zeroed?"
+            ],
+            "architectural_features": {
+                "vision_encoder": "SigLIP",
+                "state_encoder": "Single Linear layer (state_adaptor)",
+                "language_encoder": "T5-XXL",
+                "action_generation": "Diffusion-based",
+                "note": "state_adaptor input_dim = state_token_dim * 2 (state + mask)"
+            }
         }
         
         return report
@@ -283,24 +268,29 @@ class RDTHooks:
         """
         summary = {}
         
-        # Gradient analysis - focus on MLP layer-wise
+        # State adaptor gradients
         if self.gradient_analyzer.layer_profilers:
-            mlp_profiler = self.gradient_analyzer.layer_profilers.get("proprio_mlp")
-            if mlp_profiler:
-                summary["mlp_gradients"] = {
-                    "layer_norms": mlp_profiler.get_summary(),
-                    "vanishing_point": mlp_profiler.find_vanishing_point()
-                }
+            state_profiler = self.gradient_analyzer.layer_profilers.get("state_adaptor")
+            if state_profiler:
+                summary["state_adaptor_gradients"] = state_profiler.get_summary()
+            
+            transformer_profiler = self.gradient_analyzer.layer_profilers.get("transformer")
+            if transformer_profiler:
+                summary["transformer_gradients"] = transformer_profiler.get_summary()
         
-        # Representation at each MLP layer
+        # State representation features
         if self.representation_analyzer.feature_extractor.features:
-            mlp_features = {
+            state_features = {
                 name: feats 
                 for name, feats in self.representation_analyzer.feature_extractor.features.items()
-                if "mlp" in name.lower()
+                if "state_adaptor" in name
             }
-            if mlp_features:
-                summary["mlp_representations"] = list(mlp_features.keys())
+            if state_features:
+                summary["state_representations"] = list(state_features.keys())
+        
+        # Attention patterns
+        if self.utilization_analyzer.attention_tracker.results:
+            summary["attention_patterns"] = self.utilization_analyzer.attention_tracker.compute_modality_attention()
         
         # Overall encoder comparison
         summary["encoder_comparison"] = self.gradient_analyzer.get_comprehensive_report()
@@ -322,26 +312,30 @@ class RDTHooks:
         print("RDT-1B MODEL STRUCTURE")
         print("=" * 80)
         print(f"Model: {structure['model_name']}")
-        print(f"Has Proprioceptive Encoder: {structure['has_proprio_encoder']}")
-        print(f"Proprio Encoder Type: {structure.get('proprio_encoder_type', 'unknown')}")
+        print(f"Has State Encoder: {structure['has_proprio_encoder']}")
+        print(f"State Encoder Type: {structure.get('proprio_encoder_type', 'unknown')}")
         
         print("\nDiscovered Components:")
         for comp_name, attr_name in structure["components"].items():
             print(f"  - {comp_name}: model.{attr_name}")
         
-        print(f"\nProprio Encoder Details:")
-        print(f"  - Has Fourier Features: {structure.get('has_fourier', False)}")
-        print(f"  - MLP Layers: {structure.get('mlp_layers', 0)}")
-        
-        if self.mlp_layers:
-            print("\n  MLP Layer Structure:")
-            for name, layer in self.mlp_layers:
-                if hasattr(layer, 'in_features') and hasattr(layer, 'out_features'):
-                    print(f"    - {name}: {layer.in_features} → {layer.out_features}")
+        print(f"\nState Encoder Details:")
+        print(f"  - Type: Single Linear layer (state_adaptor)")
+        print(f"  - Architecture: Linear projection to transformer embedding space")
+        if 'proprio_input_dim' in structure and 'proprio_output_dim' in structure:
+            print(f"  - Dimensions: {structure['proprio_input_dim']} → {structure['proprio_output_dim']}")
+        if structure.get('note'):
+            print(f"  - Note: {structure['note']}")
         
         if self.transformer_layers:
-            print(f"\nTransformer Layers: {len(self.transformer_layers)}")
+            print(f"\nDiffusion Transformer Layers: {len(self.transformer_layers)}")
         
-        print("\nFusion Mechanism: Concatenation at transformer input")
-        print("Key Feature: Fourier features for physical state representation")
+        print("\nArchitectural Features:")
+        print("  - Vision: SigLIP encoder")
+        print("  - State: Linear projection (state + mask)")
+        print("  - Language: T5-XXL encoder")
+        print("  - Action Generation: Diffusion-based prediction")
+        print("  - Model: RDT-1B (1.2B parameters)")
+        print("\nFusion: Concatenation at diffusion transformer input")
+        print("Key Feature: Lightweight state encoding via single projection layer")
         print("=" * 80)
