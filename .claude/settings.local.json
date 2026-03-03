@@ -4,7 +4,10 @@
       "WebFetch(domain:github.com)",
       "WebFetch(domain:raw.githubusercontent.com)",
       "Bash(python3:*)",
-      "WebFetch(domain:io-ai.tech)"
+      "WebFetch(domain:io-ai.tech)",
+      "Read(//usr/local/**)",
+      "Read(//Users/tmprithvi/.local/**)",
+      "WebFetch(domain:docs.trossenrobotics.com)"
     ]
   }
 }
