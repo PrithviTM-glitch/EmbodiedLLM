@@ -144,6 +144,16 @@ unset DISPLAY
 # export HUGGING_FACE_HUB_TOKEN=hf_XXXXXXXXXXXXXXXX
 # export HF_TOKEN=${HUGGING_FACE_HUB_TOKEN}
 
+# Guard: fail early if no HF token is available (needed for Pi0 checkpoints + VLABench)
+if [[ -z "${HF_TOKEN:-}" ]] && [[ -z "${HUGGING_FACE_HUB_TOKEN:-}" ]]; then
+    echo "ERROR: No HuggingFace token found."
+    echo "Set HF_TOKEN or HUGGING_FACE_HUB_TOKEN before submitting this job."
+    echo "  export HF_TOKEN=hf_XXXXXXXXXXXXXXXX"
+    echo "  sbatch pi0_complete_job.sh"
+    exit 1
+fi
+export HF_TOKEN="${HF_TOKEN:-${HUGGING_FACE_HUB_TOKEN:-}}"
+
 # ==============================================================================
 # Convert Notebook → Python Script
 # ==============================================================================

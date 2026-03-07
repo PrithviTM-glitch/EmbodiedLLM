@@ -23,7 +23,7 @@
 #SBATCH --output=/tc1home/FYP/prithvi004/EmbodiedLLM/test/logs/output_%x_%j.out
 #SBATCH --error=/tc1home/FYP/prithvi004/EmbodiedLLM/test/logs/error_%x_%j.err
 
-set -e
+set -euo pipefail
 echo "[$(date)] ====== Ablation Pass0 Job Started ======"
 
 # ==============================================================================
