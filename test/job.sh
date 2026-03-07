@@ -11,8 +11,11 @@
 #SBATCH --output=/tc1home/FYP/prithvi004/EmbodiedLLM/test/logs/output_%x_%j.out
 #SBATCH --error=/tc1home/FYP/prithvi004/EmbodiedLLM/test/logs/error_%x_%j.err
 
+set -euo pipefail
+
 module load anaconda
-source /tc1apps/anaconda3/bin/activate TestEnv
+module load cuda/12.1
+source activate TestEnv
 
 cd /tc1home/FYP/prithvi004/EmbodiedLLM/test
 python test.py

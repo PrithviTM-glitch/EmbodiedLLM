@@ -5,7 +5,7 @@
 #
 # Three experiments:
 #   1. Baseline benchmarking (LIBERO, MetaWorld)
-#   2. Ablation study (zero state_encoder → normalize_state returns zeros)
+#   2. Ablation study (forward hook zeros state_encoder output)
 #   3. Gradient analysis (state encoder gradient flow via flow matching loss)
 #
 # ARCHITECTURE NOTE:
