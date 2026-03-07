@@ -61,20 +61,21 @@ def main():
     print('\n[1/5] Loading Pi0 model...')
     
     try:
-        # Import Pi0 model (adjust import path as needed)
-        from openpi import Pi0Policy
-        
-        # Load pretrained model
-        model = Pi0Policy.from_pretrained('pi0-base')
+        # Pi0 is loaded via lerobot (HuggingFace)
+        from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+
+        # Load pretrained model from HuggingFace hub
+        model = PI0Policy.from_pretrained('lerobot/pi0')
         model = model.to(device)
         model.eval()
-        
+
         print(f'✅ Pi0 model loaded successfully')
         print(f'   Device: {device}')
-        
+
     except Exception as e:
         print(f'❌ Error loading Pi0 model: {e}')
-        print('   Make sure openpi package is installed and model weights are available')
+        print('   Make sure lerobot is installed: pip install lerobot')
+        print('   And HF_TOKEN is set for gated model access')
         return
     
     # ========================================
@@ -88,8 +89,8 @@ def main():
     
     print(f'✅ Model structure discovered:')
     print(f'   - Model: {structure["model_name"]}')
-    print(f'   - Has state encoder: {structure["has_state_encoder"]}')
-    print(f'   - Encoder type: {structure["state_encoder_type"]}')
+    print(f'   - Has proprio encoder: {structure["has_proprio_encoder"]}')
+    print(f'   - Encoder type: {structure["proprio_encoder_type"]}')
     
     # ========================================
     # Step 3: Load Data
@@ -183,16 +184,23 @@ def main():
     # ========================================
     # Step 5: Ablation Analysis
     # ========================================
-    print('\n[5/5] Running ablation analysis (zeroed state)...')
-    
-    # Detach and attach ablation hooks
-    hook_manager.detach_all()
+    print('\n[5/6] Running ablation analysis (zeroed state)...')
+
+    # Clean up baseline hooks, then re-attach for ablation run
+    hook_manager.cleanup()
     hook_manager.attach_representation_hooks()
     hook_manager.attach_gradient_hooks()
-    
-    # Enable ablation
-    hook_manager.enable_ablation('state_encoder')
-    
+
+    # Enable ablation via direct forward hook on state_proj
+    ablation_handle = None
+    if hook_manager.state_proj is not None:
+        ablation_handle = hook_manager.state_proj.register_forward_hook(
+            lambda m, i, o: torch.zeros_like(o)
+        )
+        print('   ✅ Zero-ablation hook attached to state_proj')
+    else:
+        print('   ⚠️  state_proj not found — ablation skipped')
+
     total_results_ablated = None
     
     for i in range(len(images)):
@@ -229,9 +237,13 @@ def main():
         if 'gradient_norm' in key or 'gradient_mean' in key:
             total_results_ablated[key] /= num_samples
     
+    # Remove ablation hook
+    if ablation_handle is not None:
+        ablation_handle.remove()
+
     print(f'✅ Ablation analysis complete')
     print(f'   State encoder gradient norm: {total_results_ablated.get("state_encoder_gradient_norm", 0):.6f}')
-    
+
     # ========================================
     # Step 6: Compare and Save Results
     # ========================================
@@ -275,7 +287,7 @@ def main():
         print(f'      Ablated:  {values["ablated"]:.6f}')
         print(f'      Reduction: {values["reduction_percent"]:.2f}%')
     
-    hook_manager.detach_all()
+    hook_manager.cleanup()
     print('\n✅ Analysis complete!')
 
 

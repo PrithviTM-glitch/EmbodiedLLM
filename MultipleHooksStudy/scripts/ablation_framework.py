@@ -87,7 +87,7 @@ class AblationServer:
         if enable and self.ablation_hook is None:
             self._attach_ablation_hook()
     
-    async def handle_inference(self, websocket, path):
+    async def handle_inference(self, websocket):
         """Handle inference request from client."""
         async for message in websocket:
             try:

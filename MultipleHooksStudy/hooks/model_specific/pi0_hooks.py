@@ -2,14 +2,15 @@
 π0 (Pi0) Model-Specific Hooks
 
 Adapter for attaching hooks to π0 (3.3B) model.
-π0 has the most advanced proprioceptive encoding with separate encoder and causal masking.
+π0 uses a single Linear layer (state_proj) to project proprioceptive state
+to a single VLM embedding token, concatenated with vision/language tokens.
 
 Architecture:
-- Vision: Pre-trained vision transformer
-- Proprio: Separate dedicated encoder with multiple layers
-- Language: Pre-trained language model  
-- Fusion: Block-wise causal masking, asymmetric conditioning
-- Action: Flow matching architecture
+- Vision: PaliGemma ViT encoder
+- Proprio: state_proj (Single nn.Linear: state_dim → embed_dim)
+- Language: PaliGemma language model
+- Fusion: State token concat with vision/language tokens, processed by Expert Gemma
+- Action: Flow matching architecture (Expert Gemma transformer)
 """
 
 import torch

@@ -218,15 +218,15 @@ def main():
     baseline_integration_grad = None
     if 'layer_profiles' in gradient_baseline:
         layer_profiles = gradient_baseline['layer_profiles']
-        if 'integration_module' in layer_profiles:
-            baseline_integration_grad = layer_profiles['integration_module']
+        if 'state_encoder' in layer_profiles:
+            baseline_integration_grad = layer_profiles['state_encoder']
     
     if baseline_integration_grad:
         baseline_norm = baseline_integration_grad.get('norm', 0.0)
         print(f'✅ Baseline gradient norm (state encoder): {baseline_norm:.6f}')
     else:
         baseline_norm = 0.0
-        print('⚠️  integration_module gradients not found in baseline')
+        print('⚠️  state_encoder (action_head.state_encoder) gradients not found in baseline')
     
     # Compute total model gradient norm (baseline only - no ablation needed)
     total_grad_norm = 0.0
@@ -246,16 +246,24 @@ def main():
     # ========================================
     print('\n[4/5] Running ablation analysis (zero state encoder output)...')
     
-    # Attach ablation hook
+    # Attach ablation hook — target action_head.state_encoder (CategorySpecificMLP)
     ablation_handle = None
     def zero_output_hook(module, input, output):
         return torch.zeros_like(output)
-    
-    for name, module in model.named_modules():
-        if 'integration_module' in name:
-            ablation_handle = module.register_forward_hook(zero_output_hook)
-            print(f'   Hooked: {name}')
-            break
+
+    # Prefer the directly-resolved encoder from the hook manager
+    if hook_manager.state_encoder is not None:
+        ablation_handle = hook_manager.state_encoder.register_forward_hook(zero_output_hook)
+        print('   Hooked: action_head.state_encoder (via Evo1Hooks)')
+    else:
+        for name, module in model.named_modules():
+            if 'action_head' in name and 'state_encoder' in name:
+                ablation_handle = module.register_forward_hook(zero_output_hook)
+                print(f'   Hooked: {name}')
+                break
+
+    if ablation_handle is None:
+        print('⚠️  Could not find action_head.state_encoder for ablation hook')
     
     # Reset and run ablation
     hook_manager.reset()
@@ -324,15 +332,15 @@ def main():
     ablated_integration_grad = None
     if 'layer_profiles' in gradient_ablated:
         layer_profiles = gradient_ablated['layer_profiles']
-        if 'integration_module' in layer_profiles:
-            ablated_integration_grad = layer_profiles['integration_module']
+        if 'state_encoder' in layer_profiles:
+            ablated_integration_grad = layer_profiles['state_encoder']
     
     if ablated_integration_grad:
         ablated_norm = ablated_integration_grad.get('norm', 0.0)
         print(f'✅ Ablation gradient norm: {ablated_norm:.6f}')
     else:
         ablated_norm = 0.0
-        print('⚠️  integration_module gradients not found in ablation')
+        print('⚠️  state_encoder (action_head.state_encoder) gradients not found in ablation')
     
     # ========================================
     # Step 5: Compare and Generate Verdict
@@ -351,7 +359,7 @@ def main():
     
     if grad_change_pct < 10:
         verdict = "❌ UNDERUTILIZED"
-        explanation = "When integration_module output is zeroed, gradients barely change. The model doesn't rely on state encoder's contribution."
+        explanation = "When action_head.state_encoder output is zeroed, gradients barely change. The model doesn't rely on state encoder's contribution."
     elif grad_change_pct < 30:
         verdict = "⚠️ PARTIALLY UTILIZED"
         explanation = "Some gradient sensitivity when state encoder is removed, but the dependency is weak."
@@ -377,7 +385,7 @@ def main():
     results = {
         'model': 'Evo-1 (0.77B)',
         'checkpoint': args.checkpoint,
-        'state_encoder': 'integration_module',
+        'state_encoder': 'action_head.state_encoder (CategorySpecificMLP)',
         'ablation_method': 'output_ablation',
         'baseline_grad_norm': float(baseline_norm),
         'total_model_grad_norm': float(total_grad_norm),

@@ -49,10 +49,11 @@ PI0_BENCHMARKS = {
 def load_pi0_model():
     """Load Pi0 model and identify state encoder."""
     try:
-        from openpi import Pi0Policy
-        
+        # Pi0 is loaded via lerobot (HuggingFace)
+        from lerobot.policies.pi0.modeling_pi0 import PI0Policy
+
         print("Loading Pi0 model...")
-        model = Pi0Policy.from_pretrained('pi0-base')
+        model = PI0Policy.from_pretrained('lerobot/pi0')
         model.eval()
         
         # Identify state_proj layer

@@ -112,8 +112,8 @@ def main():
     
     print(f'✅ Model structure discovered:')
     print(f'   - Model: {structure["model_name"]}')
-    print(f'   - Has state encoder: {structure["has_state_encoder"]}')
-    print(f'   - Encoder type: {structure["state_encoder_type"]}')
+    print(f'   - Has proprio encoder: {structure["has_proprio_encoder"]}')
+    print(f'   - Encoder type: {structure["proprio_encoder_type"]}')
     
     # ========================================
     # Step 4: Load Data
@@ -220,16 +220,23 @@ def main():
     # ========================================
     # Step 6: Ablation Analysis
     # ========================================
-    print('\n[6/6] Running ablation analysis (zeroed state)...')
-    
-    # Detach and attach ablation hooks
-    hook_manager.detach_all()
+    print('\n[6/7] Running ablation analysis (zeroed state)...')
+
+    # Clean up baseline hooks, then re-attach for ablation run
+    hook_manager.cleanup()
     hook_manager.attach_representation_hooks()
     hook_manager.attach_gradient_hooks()
-    
-    # Enable ablation
-    hook_manager.enable_ablation('state_encoder')
-    
+
+    # Enable ablation via direct forward hook on state_adaptor (proprio_encoder)
+    ablation_handle = None
+    if hook_manager.proprio_encoder is not None:
+        ablation_handle = hook_manager.proprio_encoder.register_forward_hook(
+            lambda m, i, o: torch.zeros_like(o)
+        )
+        print('   \u2705 Zero-ablation hook attached to state_adaptor')
+    else:
+        print('   \u26a0\ufe0f  proprio_encoder not found \u2014 ablation skipped')
+
     total_results_ablated = None
     
     for i in range(len(images)):
@@ -278,6 +285,10 @@ def main():
         if 'gradient_norm' in key or 'gradient_mean' in key:
             total_results_ablated[key] /= num_samples
     
+    # Remove ablation hook
+    if ablation_handle is not None:
+        ablation_handle.remove()
+
     print(f'✅ Ablation analysis complete')
     print(f'   State encoder gradient norm: {total_results_ablated.get("state_encoder_gradient_norm", 0):.6f}')
     
@@ -331,7 +342,7 @@ def main():
         print(f'      Ablated:  {values["ablated"]:.6f}')
         print(f'      Reduction: {values["reduction_percent"]:.2f}%')
     
-    hook_manager.detach_all()
+    hook_manager.cleanup()
     print('\n✅ Analysis complete!')
 
 

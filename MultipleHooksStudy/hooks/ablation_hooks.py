@@ -300,3 +300,60 @@ class AblationStudyCoordinator:
     def cleanup(self):
         """Remove all hooks."""
         self.manager.remove_all_hooks()
+
+    # ------------------------------------------------------------------
+    # Convenience helpers called by model-specific hook adapters
+    # ------------------------------------------------------------------
+
+    def register_ablation(self, name: str, hook_fn) -> None:
+        """
+        Register a custom ablation hook function (raw PyTorch hook) by name.
+
+        The hook is stored but not attached until ``enable_ablation`` is called.
+        This is simpler than ``setup()`` when the caller already has a ready-made
+        hook function rather than a bare encoder module.
+
+        Args:
+            name: Descriptive name for this ablation target.
+            hook_fn: A callable matching PyTorch forward-hook signature
+                     ``(module, input, output) → output_or_None``.
+        """
+        self._custom_ablation_hooks: Dict[str, Any] = getattr(
+            self, '_custom_ablation_hooks', {}
+        )
+        self._custom_ablation_hooks[name] = hook_fn
+
+    def add_ablation_target(
+        self,
+        name: str,
+        module: nn.Module,
+        ablation_types: Optional[List[str]] = None,
+    ) -> None:
+        """
+        Register an encoder module as an ablation target.
+
+        Wraps ``ModalityAblationManager.register_encoder`` so that model-specific
+        hooks don't need to reach into the manager directly.
+
+        Args:
+            name: Name for this ablation target (e.g. ``"state_encoder"``).
+            module: The PyTorch module whose output will be ablated.
+            ablation_types: List of ablation types to support
+                            (``"zero"``, ``"noise"``, ``"freeze"``).
+                            Only ``"zero"`` and ``"noise"`` are currently wired up;
+                            ``"freeze"`` is noted for future use.
+                            Defaults to ``["zero"]``.
+        """
+        if ablation_types is None:
+            ablation_types = ["zero"]
+        primary_type = "zero" if "zero" in ablation_types else ablation_types[0]
+        self.manager.register_encoder(name, module, ablation_type=primary_type)
+
+    def get_results(self) -> Dict[str, Any]:
+        """
+        Return stored ablation experiment results.
+
+        Populated by ``run_ablation_experiment`` / ``run_standard_ablations``.
+        Returns an empty dict when no experiment has been run yet.
+        """
+        return self.results
