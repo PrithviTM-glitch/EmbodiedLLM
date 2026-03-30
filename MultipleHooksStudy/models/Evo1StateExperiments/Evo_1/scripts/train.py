@@ -68,6 +68,9 @@ def custom_collate_fn(batch):
     prompts = [item["prompt"] for item in batch]
     images = [item["images"] for item in batch]
     states = torch.stack([item["state"] for item in batch], dim=0)
+    # Assert shape is [B, k+1, state_dim] when temporal encoder is active
+    # [B, 7] is still accepted for backwards compatibility
+    assert states.ndim in (2, 3), f"Unexpected states shape: {states.shape}"
     actions = torch.stack([item["action"] for item in batch], dim=0)
     action_mask = torch.stack([item["action_mask"] for item in batch], dim=0)
     image_masks = torch.stack([item["image_mask"] for item in batch], dim=0)
@@ -321,6 +324,8 @@ def build_param_groups(model, wd):
             continue
         is_bias = n.endswith("bias") or ".bias" in n
         is_norm = (p.dim() == 1) or ("norm" in n.lower())
+        # Note: decay_logits are 1D and land in no_decay intentionally —
+        # weight decay would bias them toward σ(0)=0.5 and fight learning
         (no_decay if is_bias or is_norm else decay).append(p)
     return [{"params": decay, "weight_decay": wd},
             {"params": no_decay, "weight_decay": 0.0}]
@@ -640,6 +645,10 @@ if __name__ == "__main__":
     # dropout
     parser.add_argument("--dropout", type=float, default=0.0)
 
+    # Encoder values
+    parser.add_argument("--embed_dim", type=int, default=896)
+    parser.add_argument("--hidden_dim", type=int, default=1024)
+
     args = parser.parse_args()
     config = vars(args)
     config["encoder_config"] = {
@@ -647,8 +656,8 @@ if __name__ == "__main__":
             "history_len":       config["history_len"],
             "embedding_strain":  config["embedding_strain"],
             "state_dim":         config["state_dim"],
-            "embed_dim":         config.get("embed_dim", 896),
-            "hidden_dim":        config.get("hidden_dim", 1024),
+            "embed_dim":         config["embed_dim"],
+            "hidden_dim":        config["hidden_dim"],
             "trace_decay":       config["trace_decay"],
         }
     

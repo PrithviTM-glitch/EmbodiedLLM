@@ -21,7 +21,8 @@
 /vla-benchmark/logs/
 
 # Ignore model artifacts (weights, checkpoints, local clones)
-models/
+models/Evo-1
+models/openpi
 
 # Keep a placeholder if you want the directory to exist in repo
 !models/.gitkeep

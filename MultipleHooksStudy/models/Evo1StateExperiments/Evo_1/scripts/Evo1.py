@@ -168,3 +168,12 @@ class EVO1(nn.Module):
             self._freeze_module(self.action_head, "Action Head")
         else:
             print("Finetuning Action Head...")
+
+        # Always keep decay logits trainable if state encoder exists —
+        # they are updated jointly with DiT in Phase 1 regardless of freeze flags
+        if (
+            hasattr(self.action_head, "state_encoder")
+            and self.action_head.state_encoder is not None
+        ):
+            self.action_head.state_encoder.decay_logits.requires_grad = True
+            print("Decay logits unfrozen for Phase 1 joint training.")
