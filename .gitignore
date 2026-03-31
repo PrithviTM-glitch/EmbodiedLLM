@@ -26,3 +26,10 @@ models/openpi
 
 # Keep a placeholder if you want the directory to exist in repo
 !models/.gitkeep
+
+.claude
+.vscode
+.github
+
+MutlipleHooksStudy/benchmarks
+MutlipleHooksStudy/benchmarks
