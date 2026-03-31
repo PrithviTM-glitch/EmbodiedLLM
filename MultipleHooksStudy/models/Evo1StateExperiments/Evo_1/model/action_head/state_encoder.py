@@ -82,6 +82,7 @@ class TemporalStateEncoder(nn.Module):
         self,
         feature_extractors: list[BaseFeatureExtractor],
         embedding_strategy: BaseEmbeddingStrategy,
+        history_len: int = 5,
         state_dim: int = 7,
         hidden_dim: int = 1024,
         embed_dim: int = 896,
@@ -94,6 +95,7 @@ class TemporalStateEncoder(nn.Module):
 
         self.extractors          = feature_extractors
         self.embedding_strategy  = embedding_strategy
+        self.history_len         = history_len
         self.state_dim           = state_dim
         self.embed_dim           = embed_dim
         self.num_feature_types   = num_feature_types
@@ -195,24 +197,25 @@ class TemporalStateEncoder(nn.Module):
     def num_tokens(self) -> int:
         """
         Total number of tokens produced per forward pass.
-        Computed dynamically from the extractor list so it stays correct
-        when extractors are added or removed.
-        """
-        dummy = torch.zeros(1, self._infer_history_len() + 1, self.state_dim)
-        with torch.no_grad():
-            return self.forward(dummy).shape[1]
+        Computed analytically from the extractor list and history_len.
 
-    def _infer_history_len(self) -> int:
+            PositionFeatures    → k+1 tokens
+            VelocityFeatures    → k tokens
+            AccelerationFeatures → k-1 tokens
+            everything else     → 1 token  (trace, deviation, future types)
         """
-        Infer k from the extractor list.
-        PositionFeatures produces k+1 tokens, so k = len(position_outputs) - 1.
-        Falls back to 5 if no PositionFeatures extractor is present.
-        """
+        k = self.history_len
+        total = 0
         for ext in self.extractors:
             if isinstance(ext, PositionFeatures):
-                # need at least k=3 for acceleration — use a safe default
-                return 5
-        return 5
+                total += k + 1
+            elif isinstance(ext, VelocityFeatures):
+                total += k
+            elif isinstance(ext, AccelerationFeatures):
+                total += k - 1
+            else:
+                total += 1
+        return total
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +289,7 @@ def build_encoder(config: dict) -> TemporalStateEncoder:
     return TemporalStateEncoder(
         feature_extractors=extractors,
         embedding_strategy=embedding_strategy,
+        history_len=history_len,
         state_dim=state_dim,
         hidden_dim=hidden_dim,
         embed_dim=embed_dim,

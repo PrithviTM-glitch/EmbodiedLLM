@@ -437,12 +437,39 @@ The DiT and state encoder benefit from co-adaptation during Phase 1 and 2. Freez
 
 ## Checklist Before Running
 
-- [ ] Dataset returns state history `[B, k+1, 7]` not single snapshot `[B, 7]`
+### Critical — must pass before any experiment run
+
+- [ ] Smoke test passes: `--max_steps 10 --skip_pretrain --batch_size 2 --history_len 3`
+      - imports resolve without error
+      - dataset returns `[B, k+1, max_state_dim]` states
+      - state encoder produces `[B, 3k+2, 896]` tokens without shape errors
+      - forward pass completes and loss is finite
+      - `run_attention_eval` runs without crash and logs to wandb
 - [ ] k >= 3 (minimum for acceleration computation)
-- [ ] Phase 0 pretraining converges — L_recon plateaus before main training begins
-- [ ] Type embeddings verified orthogonal after Strain C init (check pairwise dot products)
-- [ ] MLP and LayerNorm frozen after Phase 0 (verify requires_grad = False)
-- [ ] Decay logits unfrozen going into Phase 1 (verify requires_grad = True)
-- [ ] Attention hook registered with need_weights = True
-- [ ] Baseline re-run on same data split for fair comparison
-- [ ] Phase 1 step count increased by 1.5× vs original Stage 1
+- [ ] Dataset cache directory is empty or partitioned by `k{history_len}` — stale cache from different k will silently load wrong history length
+- [ ] Baseline re-run on same data split for fair comparison before launching new experiments
+
+### Phase 0 verification
+
+- [ ] Phase 0 pretraining converges — `L_recon` plateaus before main training begins
+- [ ] MLP and LayerNorm frozen after Phase 0 (verify `requires_grad = False`)
+- [ ] Decay logits unfrozen going into Phase 1 (verify `requires_grad = True`)
+- [ ] For Strain C: type embeddings verified orthogonal after QR init — check pairwise dot products are ~0
+- [ ] For Strain B: orthogonality loss `L_orth` decreasing during Phase 0
+
+### Architecture verification
+
+- [ ] Dataset returns state history `[B, k+1, max_state_dim]` not single snapshot `[B, max_state_dim]`
+- [ ] `torch.flip` applied in `__getitem__` — index 0 = s_t (most recent), index k = s_{t-k} (oldest)
+- [ ] `_need_weights = False` initialised in `BasicTransformerBlock.__init__()` so attribute always exists
+- [ ] `enable_attention_weights()` called before eval forward pass — verify `block._need_weights = True` on all blocks
+- [ ] Attention hook capturing non-None weights — check `attention_store` is not empty after eval pass
+- [ ] Phase 1 step count increased by 1.5× vs original Stage 1 — DiT needs extra steps to discover frozen token distribution
+
+### Known limitations and future work
+
+- [ ] `state_mask` parameter is accepted throughout the pipeline but never used — currently a no-op. If mixed-embodiment batches show unexpected behaviour, wire `state_mask` into `TemporalStateEncoder.forward()` to explicitly zero out padded joint dimensions before MLP encoding. Shape is now `[B, k+1, max_state_dim]` after the history change.
+- [ ] `prepare_state` in `Evo1.py` passes `[B, 7]` or `[B, k+1, 7]` through as-is — caller is responsible for correct shape. No inference-time shape validation exists beyond the `ndim == 1` single vector case.
+- [ ] Jerk, joint limit proximity, and manipulability features are documented in the README but not yet implemented as extractor classes. When adding: register in `FEATURE_TYPE_REGISTRY`, write extractor class with `feature_name` attribute, add to `EXTRACTOR_REGISTRY` in `state_encoder.py`. No other files need to change.
+- [ ] `action_shape` dead assignment in `flow_matching.py` — harmless, clean up when convenient
+- [ ] Commented out code blocks in `flow_matching.py` and `Evo1.py` — clean up when convenient

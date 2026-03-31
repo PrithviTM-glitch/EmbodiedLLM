@@ -121,7 +121,7 @@ def phase0_loss(
         total loss scalar, dict of component values for logging
     """
     l_recon = reconstruction_loss(encoder, decoder, feature_batch)
-    l_orth  = encoder.orthogonality_loss()
+    l_orth  = encoder.orthogonality_loss().to(l_recon.device)
     total   = l_recon + lambda_orth * l_orth
 
     components = {
@@ -232,9 +232,12 @@ def pretrain_phase0(
 
     optimizer = AdamW(trainable_params, lr=lr)
 
-    encoder, decoder, optimizer, dataloader = accelerator.prepare(
-        encoder, decoder, optimizer, dataloader
-    )
+    # Do NOT prepare the encoder here — it is a submodule of the full model and
+    # will be wrapped by accelerator.prepare(model, ...) in the main training loop.
+    # Wrapping it twice causes DistributedDataParallel to be applied twice on
+    # multi-GPU runs.  Move the decoder to the correct device manually instead.
+    decoder = decoder.to(accelerator.device)
+    optimizer, dataloader = accelerator.prepare(optimizer, dataloader)
 
     encoder.train()
     decoder.train()

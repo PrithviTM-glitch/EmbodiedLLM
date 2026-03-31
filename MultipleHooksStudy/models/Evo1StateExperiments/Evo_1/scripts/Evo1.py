@@ -1,6 +1,7 @@
 import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model", "action_head")))
 from types import SimpleNamespace
 from typing import List, Union, Tuple
 from PIL import Image
@@ -95,16 +96,12 @@ class EVO1(nn.Module):
         else:
             raise TypeError("Unsupported state input type")
 
-        # if state_tensor.ndim == 1:
-        #     state_tensor = state_tensor.unsqueeze(0)
+        # Single joint vector [state_dim] → [1, state_dim]
         if state_tensor.ndim == 1:
-            tate_tensor = state_tensor.unsqueeze(0)
+            state_tensor = state_tensor.unsqueeze(0)
 
-        if state_tensor.ndim == 2 and state_tensor.shape[-1] == self.config.get("state_dim", 7):
-            history_len = self.config.get("encoder_config", {}).get("history_len", 1)
-            if state_tensor.shape[0] == history_len + 1:
-                state_tensor = state_tensor.unsqueeze(0)
-
+        # [B, state_dim] or [B, k+1, state_dim] — caller is responsible for correct shape.
+        # ndim == 2 is ambiguous between a single history window and a batch; do not infer.
         return state_tensor.to(self._device)
 
     

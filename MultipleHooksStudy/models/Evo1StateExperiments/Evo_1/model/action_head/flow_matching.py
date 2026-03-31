@@ -131,11 +131,14 @@ class BasicTransformerBlock(nn.Module):
             nn.GELU(),
             nn.Linear(hidden_dim, embed_dim)
         )
+        self._need_weights: bool = False
 
-    def forward(self, action_tokens: torch.Tensor, context_tokens: torch.Tensor, time_emb: torch.Tensor):
+    def forward(self, action_tokens: torch.Tensor, context_tokens: torch.Tensor, time_emb: torch.Tensor, need_weights: bool | None = None):
+        if need_weights is None:
+            need_weights = self._need_weights
 
         x = self.norm1(action_tokens)
-        attn_out, _ = self.attn(x, context_tokens, context_tokens)
+        attn_out, attn_weights = self.attn(x, context_tokens, context_tokens, need_weights=need_weights, average_attn_weights=False)
 
         x = action_tokens + attn_out
 
@@ -235,7 +238,7 @@ class FlowmatchingActionHead(nn.Module):
                 state_mask: torch.Tensor = None, action_mask: torch.Tensor = None):
 
         if actions_gt is None:
-            return self.get_action(fused_tokens, state=state, embodiment_id=embodiment_id)
+            return self.get_action(fused_tokens, state=state, embodiment_id=embodiment_id, action_mask=action_mask)
         B = fused_tokens.size(0)
         device = fused_tokens.device
 

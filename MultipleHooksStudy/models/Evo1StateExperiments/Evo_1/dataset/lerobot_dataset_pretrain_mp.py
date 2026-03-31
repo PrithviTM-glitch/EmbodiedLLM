@@ -66,7 +66,7 @@ def merge_lerobot_stats(stats_list: List[Dict[str, Dict[str, List[float]]]]) -> 
 
 
 def _process_parquet_file_worker(args):
-    parquet_path, arm_name, dataset_name, dataset_config, dataset_path, task_mapping, action_horizon, max_samples_per_file, cache_dir = args
+    parquet_path, arm_name, dataset_name, dataset_config, dataset_path, task_mapping, action_horizon, max_samples_per_file, cache_dir, history_len = args
     
     try:
         view_map = dataset_config.get('view_map', None)
@@ -90,7 +90,7 @@ def _process_parquet_file_worker(args):
             end_idx = i + action_horizon
             
       
-            cache_subdir = cache_dir / arm_name / dataset_name / parquet_path.parent.name / parquet_path.stem
+            cache_subdir = cache_dir / arm_name / dataset_name / parquet_path.parent.name / parquet_path.stem / f"k{history_len}"
             cache_filename = f"{start_idx}_{end_idx}.pkl"
             cache_filepath = cache_subdir / cache_filename
             
@@ -120,16 +120,37 @@ def _process_parquet_file_worker(args):
                 logging.info(f"cannot find task description from task_index={task_index}")
                 prompt = ""
 
+            # episode = {
+            #     "arm_key": arm_name,
+            #     "dataset_key": dataset_name,
+            #     "prompt": prompt,
+            #     "state": sub_df.iloc[0].get("observation.state", None),
+            #     "action": [row["action"] for _, row in sub_df.iterrows()],
+            #     "video_paths": video_paths,
+            #     "timestamp": sub_df.iloc[0].get("timestamp", None),
+            # }
+            # Build state history window of size k+1
+            # history_states[0] = s_{t-k} (oldest)
+            # history_states[-1] = s_t    (most recent)
+            # Repeat-first-frame padding at episode boundaries —
+            # if i < history_len, steps before the start of the dataframe
+            # are filled with the earliest available state (iloc[0])
+            history_states = []
+            for h in range(history_len, -1, -1):   # k, k-1, ..., 1, 0
+                past_idx = max(0, i - h)
+                past_state = df.iloc[past_idx].get("observation.state", None)
+                history_states.append(past_state)
+
             episode = {
                 "arm_key": arm_name,
                 "dataset_key": dataset_name,
                 "prompt": prompt,
-                "state": sub_df.iloc[0].get("observation.state", None),
+                "state": history_states,    # list of k+1 state vectors, oldest first
                 "action": [row["action"] for _, row in sub_df.iterrows()],
                 "video_paths": video_paths,
                 "timestamp": sub_df.iloc[0].get("timestamp", None),
             }
-            
+                        
             cache_subdir.mkdir(parents=True, exist_ok=True)
             with open(cache_filepath, 'wb') as f:
                 pickle.dump(episode, f)
@@ -168,6 +189,7 @@ class LeRobotDataset(Dataset):
         self.max_samples_per_file = max_samples_per_file
         self.binarize_gripper = binarize_gripper
         self.use_augmentation = use_augmentation
+        self.history_len = config.get("history_len", 5)
 
 
         if cache_dir is None:
@@ -282,7 +304,8 @@ class LeRobotDataset(Dataset):
                         task_mapping,  
                         self.action_horizon,
                         self.max_samples_per_file,
-                        self.cache_dir  
+                        self.cache_dir,
+                        self.history_len 
                     ))
 
        
@@ -455,10 +478,11 @@ class LeRobotDataset(Dataset):
         images = torch.stack(images)
 
 
-        if item["state"] is None:
-            raise ValueError("missing observation.state, please check data integrity")
+        # if item["state"] is None:
+        #     raise ValueError("missing observation.state, please check data integrity")
         
-    
+        if item["state"] is None or any(s is None for s in item["state"]):
+            raise ValueError("missing observation.state in history window, please check data integrity")
 
         try:
             norm_stats = self.arm2stats_dict[arm_key]
@@ -468,18 +492,37 @@ class LeRobotDataset(Dataset):
 
         
 
-        state = torch.tensor(item["state"], dtype=torch.float32)
-        device = state.device
-        state_min = torch.tensor(norm_stats["observation.state"]["min"], dtype=torch.float32, device=device)
-        state_max = torch.tensor(norm_stats["observation.state"]["max"], dtype=torch.float32, device=device)
+        # state = torch.tensor(item["state"], dtype=torch.float32)
+        # device = state.device
+        # state_min = torch.tensor(norm_stats["observation.state"]["min"], dtype=torch.float32, device=device)
+        # state_max = torch.tensor(norm_stats["observation.state"]["max"], dtype=torch.float32, device=device)
         
-        state = 2 * (state - state_min) / (state_max - state_min + 1e-8) - 1
-        state = torch.clamp(state, -1.0, 1.0)  
+        # state = 2 * (state - state_min) / (state_max - state_min + 1e-8) - 1
+        # state = torch.clamp(state, -1.0, 1.0)  
+
+        # state_padded, state_mask = self._pad_tensor(
+        #     state, self.max_state_dim
+        # )
+        # item["state"] is a list of k+1 state vectors, oldest first
+        # Normalise each timestep independently then stack into [k+1, state_dim]
+        state_min = torch.tensor(norm_stats["observation.state"]["min"], dtype=torch.float32)
+        state_max = torch.tensor(norm_stats["observation.state"]["max"], dtype=torch.float32)
+
+        state_history = []
+        for s in item["state"]:
+            s_tensor = torch.tensor(s, dtype=torch.float32)
+            s_norm = 2 * (s_tensor - state_min) / (state_max - state_min + 1e-8) - 1
+            s_norm = torch.clamp(s_norm, -1.0, 1.0)
+            state_history.append(s_norm)
+
+        state = torch.stack(state_history, dim=0)   # [k+1, state_dim]
+        state = torch.flip(state, dims=[0])   
 
         state_padded, state_mask = self._pad_tensor(
             state, self.max_state_dim
         )
-
+        # state_padded: [k+1, max_state_dim]
+        # state_mask:   [k+1, max_state_dim]
 
         if item["action"] is None:
             raise ValueError("missing action, please check data integrity")

@@ -87,6 +87,7 @@ class PositionFeatures(BaseFeatureExtractor):
     """
 
     TYPE_ID = FEATURE_TYPE_REGISTRY["position"]
+    feature_name = "position"
 
     def extract(self, S: torch.Tensor) -> list[tuple[torch.Tensor, int, int]]:
         k = S.shape[1] - 1
@@ -106,6 +107,7 @@ class VelocityFeatures(BaseFeatureExtractor):
     """
 
     TYPE_ID = FEATURE_TYPE_REGISTRY["velocity"]
+    feature_name = "velocity"
 
     def extract(self, S: torch.Tensor) -> list[tuple[torch.Tensor, int, int]]:
         k = S.shape[1] - 1
@@ -125,6 +127,7 @@ class AccelerationFeatures(BaseFeatureExtractor):
     """
 
     TYPE_ID = FEATURE_TYPE_REGISTRY["acceleration"]
+    feature_name = "acceleration"
 
     def extract(self, S: torch.Tensor) -> list[tuple[torch.Tensor, int, int]]:
         k = S.shape[1] - 1
@@ -155,6 +158,7 @@ class EligibilityTrace(BaseFeatureExtractor):
     """
 
     TYPE_ID = FEATURE_TYPE_REGISTRY["trace"]
+    feature_name = "trace"
 
     def __init__(self, decay: float = 0.9):
         self.decay = decay
@@ -180,6 +184,7 @@ class DeviationFromMean(BaseFeatureExtractor):
     """
 
     TYPE_ID = FEATURE_TYPE_REGISTRY["deviation"]
+    feature_name = "deviation"
 
     def extract(self, S: torch.Tensor) -> list[tuple[torch.Tensor, int, int]]:
         mean_s = S.mean(dim=1)                 # [B, state_dim]

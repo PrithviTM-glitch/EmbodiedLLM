@@ -3,6 +3,7 @@ import os
 import math
 from torch import amp
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "model", "action_head")))
 import time
 import wandb
 import swanlab
@@ -22,6 +23,7 @@ import shutil
 from torch.optim import AdamW
 
 import warnings
+from attention import run_attention_eval
 
 accelerator = Accelerator()
 
@@ -414,6 +416,7 @@ def train(config):
     log_interval = get_with_warning(config, "log_interval", 100)
     ckpt_interval = get_with_warning(config, "ckpt_interval", 1000)
     max_norm = get_with_warning(config, "grad_clip_norm", 1.0)
+    eval_interval = get_with_warning(config, "eval_interval", 500)
 
     # === Resume training from checkpoint ===
     resume = get_with_warning(config, "resume", False)
@@ -457,12 +460,16 @@ def train(config):
         #     "language_model": model.embedder.model.language_model,
         #     "action_head": model.action_head
         # })
-        inspect_named_submodules({
-            "vision_model":   model.embedder.model.vision_model,
-            "language_model": model.embedder.model.language_model,
-            "action_head":    model.action_head,
-            "state_encoder":  model.action_head.state_encoder,
-        })
+        unwrapped = accelerator.unwrap_model(model)
+        submodules = {
+            "vision_model":   unwrapped.embedder.model.vision_model,
+            "language_model": unwrapped.embedder.model.language_model,
+            "action_head":    unwrapped.action_head,
+        }
+        if unwrapped.action_head.state_encoder is not None:
+            submodules["state_encoder"] = unwrapped.action_head.state_encoder
+
+        inspect_named_submodules(submodules)
 
     # === Training Loop ===
     while step < max_steps:
@@ -528,6 +535,9 @@ def train(config):
 
             optimizer.step()
             scheduler.step()
+
+            if step % eval_interval == 0:
+                run_attention_eval(model, batch, step, accelerator)
             
             # === Logging ===
             if step % log_interval == 0:
@@ -606,6 +616,8 @@ if __name__ == "__main__":
     # Logging & checkpointing
     parser.add_argument("--log_interval", type=int, default=10)
     parser.add_argument("--ckpt_interval", type=int, default=10)
+    parser.add_argument("--eval_interval", type=int, default=500,
+                    help="Steps between attention weight logging eval passes.")
     parser.add_argument("--save_dir", type=str, default="./checkpoints")
 
     # Resume
