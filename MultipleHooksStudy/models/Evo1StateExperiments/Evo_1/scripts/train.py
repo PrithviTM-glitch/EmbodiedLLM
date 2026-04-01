@@ -132,7 +132,15 @@ def init_wandb(config: dict, accelerator: Accelerator):
         )
 
         wandb.define_metric("step")
-        wandb.define_metric("*", step_metric="step")
+        wandb.define_metric("phase0/step")
+        wandb.define_metric("phase0/recon",       step_metric="phase0/step")
+        wandb.define_metric("phase0/orth",        step_metric="phase0/step")
+        wandb.define_metric("phase0/total",       step_metric="phase0/step")
+        wandb.define_metric("phase0/final_recon", step_metric="phase0/step")
+        wandb.define_metric("loss",               step_metric="step")
+        wandb.define_metric("learning_rate",      step_metric="step")
+        wandb.define_metric("current_epoch",      step_metric="step")
+        wandb.define_metric("attn/*",             step_metric="step")
 
 def init_swanlab(config: dict, accelerator: Accelerator):
     if config.get("disable_swanlab", False):
