@@ -142,7 +142,8 @@ def init_swanlab(config: dict, accelerator: Accelerator):
         swanlab.init(
             project=config.get("wandb_project", "default_run"),
             name=config.get("run_name", "default_run"),
-            config=config
+            config=config,
+            mode="local"
         )
 
 def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
@@ -214,13 +215,15 @@ def log_training_step(step, loss, total_norm, clipped_norm, scheduler, dataloade
             "learning_rate": scheduler.get_last_lr()[0],
             
         })
-        swanlab.log({
-            "step": step,
-            "loss": loss.item(),
-            "current_epoch": current_epoch,
-            "learning_rate": scheduler.get_last_lr()[0],
-    
-        })
+        try:
+            swanlab.log({
+                "step": step,
+                "loss": loss.item(),
+                "current_epoch": current_epoch,
+                "learning_rate": scheduler.get_last_lr()[0],
+            })
+        except Exception:
+            pass
 
 def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None, norm_stats=None):
     tag = f"step_{step}"
