@@ -156,6 +156,8 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
         import yaml
         with open(config.get("dataset_config_path"), 'r') as f:
             dataset_config = yaml.safe_load(f)
+            
+        dataset_config["history_len"] = config.get("history_len", 5)
 
         dataset = LeRobotDataset(
             config=dataset_config,
@@ -163,7 +165,8 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
             max_samples_per_file=max_samples,
             action_horizon=horizon,
             binarize_gripper=binarize_gripper,
-            use_augmentation=use_augmentation
+            use_augmentation=use_augmentation,
+            cache_dir=config.get("cache_dir", "/content/training_data_cache")
         )
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
@@ -636,6 +639,8 @@ if __name__ == "__main__":
     parser.add_argument("--horizon", type=int, default=16)
     parser.add_argument("--num_layers", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=4)
+    parser.add_argument("--cache_dir", type=str, default="/content/training_data_cache",
+                    help="Cache directory for preprocessed trajectory pkl files.")
     # State encoder
     parser.add_argument("--history_len", type=int, default=5,
                         help="k — number of past timesteps in state history. Must be >= 3.")
