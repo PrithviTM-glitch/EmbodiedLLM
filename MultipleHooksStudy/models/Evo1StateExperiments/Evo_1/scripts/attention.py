@@ -29,7 +29,7 @@ from typing import Any
 
 import torch
 import wandb
-import swanlab
+# import swanlab
 
 from state_encoder import TemporalStateEncoder
 from features import (
@@ -259,7 +259,7 @@ def log_attention_weights(
         log_dict = {f"attn/{block_name}/{k}": v for k, v in feature_attn.items()}
         log_dict["step"] = step
         wandb.log(log_dict)
-        swanlab.log(log_dict)
+        # swanlab.log(log_dict)
 
         logging.info(
             f"[Step {step}] {block_name} attention — "
@@ -276,7 +276,7 @@ def log_attention_weights(
         mean_log = {f"attn/mean/{k}": v for k, v in mean_results.items()}
         mean_log["step"] = step
         wandb.log(mean_log)
-        swanlab.log(mean_log)
+        # swanlab.log(mean_log)
 
         logging.info(
             f"[Step {step}] mean attention across blocks — "
@@ -288,7 +288,7 @@ def log_attention_weights(
         if "velocity" in mean_results and "position" in mean_results:
             vel_gt_pos = 1.0 if mean_results["velocity"] > mean_results["position"] else 0.0
             wandb.log({"attn/hypothesis/vel_gt_pos": vel_gt_pos, "step": step})
-            swanlab.log({"attn/hypothesis/vel_gt_pos": vel_gt_pos, "step": step})
+            # swanlab.log({"attn/hypothesis/vel_gt_pos": vel_gt_pos, "step": step})
             logging.info(
                 f"[Step {step}] hypothesis α_vel > α_pos: "
                 f"{'SUPPORTED' if vel_gt_pos else 'NOT SUPPORTED'} "
