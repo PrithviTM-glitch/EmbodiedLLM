@@ -26,6 +26,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.optim import AdamW
+import wandb
 
 from state_encoder import TemporalStateEncoder
 
@@ -272,6 +273,15 @@ def pretrain_phase0(
                     f"orth={components['loss/orth']:.4f}  "
                     f"total={components['loss/total']:.4f}"
                 )
+                try:
+                    wandb.log({
+                        "phase0/recon":  components["loss/recon"],
+                        "phase0/orth":   components["loss/orth"],
+                        "phase0/total":  components["loss/total"],
+                        "phase0/step":   step,
+                    })
+                except Exception:
+                    pass
 
             step += 1
 
@@ -280,6 +290,13 @@ def pretrain_phase0(
 
     if accelerator.is_main_process:
         logging.info("Phase 0 pretraining complete.")
+        try:
+            wandb.log({
+                "phase0/final_recon": components["loss/recon"],
+                "loss":               components["loss/recon"],
+            })
+        except Exception:
+            pass
         logging.info(
             "Call encoder.freeze_pretrained_params() before starting Phase 1."
         )
