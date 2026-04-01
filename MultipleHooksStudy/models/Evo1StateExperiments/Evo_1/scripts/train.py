@@ -631,7 +631,8 @@ if __name__ == "__main__":
     parser.add_argument("--action_head", type=str, default="flowmatching", choices=["flowmatching"])
     parser.add_argument("--return_cls_only", action="store_true")
     parser.add_argument("--disable_wandb", action="store_true", help="Disable wandb logging.")
-
+    parser.add_argument("--wandb_project", type=str, default="default_run",
+                    help="WandB project name.")
     # Dataset
     parser.add_argument("--dataset_type", type=str, default="lerobot")
     parser.add_argument("--data_paths", type=str, required=False)
