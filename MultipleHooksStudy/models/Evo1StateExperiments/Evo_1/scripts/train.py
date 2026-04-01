@@ -136,7 +136,8 @@ def init_wandb(config: dict, accelerator: Accelerator):
         wandb.define_metric("*", step_metric="step")
 
 def init_swanlab(config: dict, accelerator: Accelerator):
-
+    if config.get("disable_swanlab", False):
+        return
     if accelerator is None or accelerator.is_main_process:
         swanlab.init(
             project=config.get("wandb_project", "default_run"),
@@ -156,7 +157,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
         import yaml
         with open(config.get("dataset_config_path"), 'r') as f:
             dataset_config = yaml.safe_load(f)
-            
+
         dataset_config["history_len"] = config.get("history_len", 5)
 
         dataset = LeRobotDataset(
@@ -641,6 +642,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--cache_dir", type=str, default="/content/training_data_cache",
                     help="Cache directory for preprocessed trajectory pkl files.")
+    parser.add_argument("--disable_swanlab", action="store_true")
     # State encoder
     parser.add_argument("--history_len", type=int, default=5,
                         help="k — number of past timesteps in state history. Must be >= 3.")
