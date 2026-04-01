@@ -129,7 +129,6 @@ def init_wandb(config: dict, accelerator: Accelerator):
             name=get_with_warning(config, "run_name", "default_run"),
             config=config,
             dir=get_with_warning(config, "save_dir", "checkpoints"),
-            mode="offline",
         )
 
         wandb.define_metric("step")
@@ -173,7 +172,7 @@ def prepare_dataset(config: dict) -> torch.utils.data.Dataset:
     else:
         raise ValueError(f"Unknown dataset_type: {dataset_type}")
     if accelerator is None or accelerator.is_main_process:
-        logging.info(f"Loaded {len(dataset)} samples from {config['data_paths']} ({dataset_type})")
+        logging.info(f"Loaded {len(dataset)} samples ({dataset_type})")
     return dataset
 
 
@@ -365,12 +364,18 @@ def train(config):
     model.train()
     model.set_finetune_flags()
 
+    # Freeze entire action head before Phase 0; only encoder params get unfrozen below
+    for p in model.action_head.parameters():
+        p.requires_grad = False
+
     if not get_with_warning(config, "skip_pretrain", False):
         from decoder import pretrain_phase0
         if accelerator.is_main_process:
             logging.info("Starting Phase 0 — state encoder pretraining")
         state_encoder = model.action_head.state_encoder
         if state_encoder is not None:
+            for p in state_encoder.parameters():
+                p.requires_grad = True
             decoder = pretrain_phase0(
                 encoder=state_encoder,
                 dataloader=dataloader,
@@ -388,10 +393,23 @@ def train(config):
             state_encoder.freeze_pretrained_params()
             del decoder
             if accelerator.is_main_process:
-                logging.info("Phase 0 complete. State encoder frozen.")
+                logging.info("Phase 0 complete.")
         else:
             if accelerator.is_main_process:
                 logging.info("No state encoder found — skipping Phase 0.")
+
+    # Transition → Stage 1: always runs (even if skip_pretrain)
+    # Restore action head to whatever set_finetune_flags intended
+    if config.get("finetune_action_head", False):
+        for p in model.action_head.parameters():
+            p.requires_grad = True
+    # Re-apply encoder freeze and keep decay_logits hot
+    if model.action_head.state_encoder is not None:
+        if not config.get("skip_pretrain", False):
+            model.action_head.state_encoder.freeze_pretrained_params()
+        model.action_head.state_encoder.decay_logits.requires_grad = True
+        if accelerator.is_main_process:
+            logging.info("State encoder frozen; decay_logits unfrozen.")
 
     lr = get_with_warning(config, "lr", 1e-5)
     wd = get_with_warning(config, "weight_decay", 1e-5)
@@ -586,8 +604,11 @@ def train(config):
                 save_checkpoint(save_dir, step=step, model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
          
     # === Save final model ===
-    save_checkpoint(save_dir, step="final", model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
-    logging.info(f"Final model saved to step_final/")
+    try:
+        save_checkpoint(save_dir, step="final", model_engine=model_engine, loss=loss, accelerator=accelerator, config=config, norm_stats=dataset.arm2stats_dict)
+        logging.info(f"Final model saved to step_final/")
+    except Exception as e:
+        logging.warning(f"Final checkpoint save failed: {e}")
     logging.info(f"Best checkpoint saved to step_best/ with loss {best_loss:.6f}")
 
 
