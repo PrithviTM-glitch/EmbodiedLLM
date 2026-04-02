@@ -293,7 +293,6 @@ def pretrain_phase0(
         try:
             wandb.log({
                 "phase0/final_recon": components["loss/recon"],
-                "loss":               components["loss/recon"],
             })
         except Exception:
             pass
