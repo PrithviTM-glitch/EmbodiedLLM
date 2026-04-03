@@ -314,9 +314,22 @@ def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="ste
     #             logging.error(f"Failed to load checkpoint even without optimizer states: {str(e2)}")
     #         raise RuntimeError(f"Failed to load DeepSpeed checkpoint from {load_dir} with tag {tag}: {str(e2)}")
 
-    # === Accelerate-native load (model + optimizer + scheduler + RNG) ===
     checkpoint_dir = os.path.join(load_dir, tag)
-    accelerator.load_state(checkpoint_dir)
+
+    if load_optimizer_states:
+        # === Full Accelerate-native load (model + optimizer + scheduler + RNG) ===
+        accelerator.load_state(checkpoint_dir)
+        if accelerator.is_main_process:
+            logging.info(f"Loaded full state (model + optimizer + scheduler) from {checkpoint_dir}")
+    else:
+        # === Model weights only — optimizer structure differs (e.g. Stage 1 → Stage 2 cross-stage resume) ===
+        from safetensors.torch import load_file
+        unwrapped = accelerator.unwrap_model(model_engine)
+        unwrapped.load_state_dict(
+            load_file(os.path.join(checkpoint_dir, "model.safetensors")), strict=True
+        )
+        if accelerator.is_main_process:
+            logging.info(f"Loaded model weights only from {checkpoint_dir} (optimizer/scheduler not restored)")
 
     meta_path = os.path.join(checkpoint_dir, "checkpoint_meta.json")
     client_state = {}
@@ -326,7 +339,7 @@ def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="ste
 
     step = 0 if resume_pretrain else client_state.get("step", 0)
     if accelerator.is_main_process:
-        logging.info(f"Loaded Accelerate checkpoint from {checkpoint_dir} (step={step})")
+        logging.info(f"Resuming from step={step}")
     return step, client_state
 
     
@@ -477,10 +490,11 @@ def train(config):
     resume = get_with_warning(config, "resume", False)
     resume_path = get_with_warning(config, "resume_path", None)
     resume_pretrain = get_with_warning(config, "resume_pretrain", False)
+    resume_model_only = get_with_warning(config, "resume_model_only", False)
 
     if resume != bool(resume_path):
         raise ValueError("Inconsistent resume configuration: --resume and --resume_path must be set together.")
-    
+
     if resume:
         resume_path = resume_path.rstrip("/")
         resume_dir, resume_tag = os.path.split(resume_path)
@@ -490,7 +504,7 @@ def train(config):
             load_dir=resume_dir,
             accelerator=accelerator,
             tag=resume_tag,
-            load_optimizer_states=True,  
+            load_optimizer_states=not resume_model_only,
             resume_pretrain=resume_pretrain
         )
         best_loss = client_state.get("best_loss", float("inf"))
@@ -683,6 +697,8 @@ if __name__ == "__main__":
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--resume_path", type=str, default=None)
     parser.add_argument("--resume_pretrain", action="store_true")
+    parser.add_argument("--resume_model_only", action="store_true",
+                        help="Load model weights only, skip optimizer/scheduler state. Use for cross-stage resumes where optimizer param groups differ.")
    
 
     # Finetuning
