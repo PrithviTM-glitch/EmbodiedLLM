@@ -342,7 +342,7 @@ def run_attention_eval(
 
     # Run one forward pass with no gradient
     try:
-        with torch.no_grad():
+        with torch.no_grad(), torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16):
             fused_tokens_list = []
             prompts      = batch["prompts"]
             images_batch = batch["images"]
