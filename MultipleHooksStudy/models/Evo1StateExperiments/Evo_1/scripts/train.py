@@ -495,6 +495,14 @@ def train(config):
     if resume != bool(resume_path):
         raise ValueError("Inconsistent resume configuration: --resume and --resume_path must be set together.")
 
+    # === Scheduler must be created and registered BEFORE load_state so Accelerate
+    #     can match the saved custom checkpoint. resume_step=0 here; if resuming a
+    #     within-stage checkpoint, load_state will overwrite the scheduler state
+    #     correctly. For cross-stage (model-only) resumes the scheduler state is not
+    #     loaded anyway, and resume_step is updated below after we know the step.
+    scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=0))
+    accelerator.register_for_checkpointing(scheduler)  # ensures save_state/load_state captures scheduler
+
     if resume:
         resume_path = resume_path.rstrip("/")
         resume_dir, resume_tag = os.path.split(resume_path)
@@ -510,6 +518,12 @@ def train(config):
         best_loss = client_state.get("best_loss", float("inf"))
         if accelerator.is_main_process:
             logging.info(f"Resuming from {resume_dir}/{resume_tag}, step {step}")
+
+        if resume_model_only:
+            # Optimizer structure differs from the checkpoint (cross-stage resume) —
+            # scheduler state was not loaded, so rebuild it with the correct resume_step.
+            scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=step))
+            accelerator.register_for_checkpointing(scheduler)
     else:
         step = 0
         if accelerator.is_main_process:
@@ -518,9 +532,6 @@ def train(config):
     if resume_pretrain:
         step = 0
         logging.info("Resuming pretraining from scratch, resetting step to 0")
-
-    scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=step))
-    accelerator.register_for_checkpointing(scheduler)  # ensures save_state/load_state captures scheduler
 
 
     if accelerator.is_main_process:
