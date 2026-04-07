@@ -408,6 +408,16 @@ def train(config):
     model.train()
     model.set_finetune_flags()
 
+    if config.get("finetune_vlm", False):
+        try:
+            model.embedder.model.language_model.gradient_checkpointing_enable()
+            model.embedder.model.vision_model.gradient_checkpointing_enable()
+            if accelerator.is_main_process:
+                logging.info("Gradient checkpointing enabled for VLM.")
+        except Exception as e:
+            if accelerator.is_main_process:
+                logging.warning(f"Gradient checkpointing not supported: {e}")
+
     # Freeze entire action head before Phase 0; only encoder params get unfrozen below
     for p in model.action_head.parameters():
         p.requires_grad = False
