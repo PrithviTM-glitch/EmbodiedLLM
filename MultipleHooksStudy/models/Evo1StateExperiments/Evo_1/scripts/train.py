@@ -22,10 +22,55 @@ import json
 import shutil
 from torch.optim import AdamW
 
+import signal
+import subprocess
+import threading
 import warnings
 from attention import run_attention_eval
 
 accelerator = Accelerator()
+
+# ── GCS sync helpers (no-op when gcs_bucket is None) ───────────────────
+_gcs_bucket = None   # set via setup_gcs_sync()
+_gcs_save_dir = None
+_last_gcs_sync = 0.0
+_GCS_COOLDOWN_SEC = 120  # minimum seconds between background syncs
+
+def setup_gcs_sync(save_dir: str, bucket: str | None):
+    global _gcs_bucket, _gcs_save_dir
+    _gcs_bucket = bucket
+    _gcs_save_dir = save_dir
+    if bucket and accelerator.is_main_process:
+        def _sigterm_handler(_signum, _frame):
+            logging.warning("[GCS] SIGTERM received — syncing before exit")
+            _gcs_sync_now(force=True)
+            sys.exit(0)
+        signal.signal(signal.SIGTERM, _sigterm_handler)
+
+        def _periodic():
+            while True:
+                time.sleep(600)   # every 10 minutes
+                _gcs_sync_now()
+        t = threading.Thread(target=_periodic, daemon=True)
+        t.start()
+        logging.info(f"[GCS] Preemption sync enabled → {bucket} (background every 10 min)")
+
+def _gcs_sync_now(force: bool = False):
+    global _last_gcs_sync
+    if not (_gcs_bucket and _gcs_save_dir and accelerator.is_main_process):
+        return
+    now = time.time()
+    if not force and (now - _last_gcs_sync) < _GCS_COOLDOWN_SEC:
+        return
+    _last_gcs_sync = now
+    dest = f"{_gcs_bucket.rstrip('/')}/{os.path.basename(_gcs_save_dir.rstrip('/'))}"
+    cmd = ["gsutil", "-m", "rsync", "-r", _gcs_save_dir, dest]
+    logging.info(f"[GCS] rsync {_gcs_save_dir} → {dest}")
+    try:
+        subprocess.run(cmd, check=True)
+        logging.info("[GCS] sync done")
+    except Exception as e:
+        logging.warning(f"[GCS] sync failed: {e}")
 
 def get_with_warning(config: dict, key: str, default):
     if key in config:
@@ -259,8 +304,17 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
     #     with open(checkpoint_meta_path, "w") as f:
     #         json.dump(checkpoint_meta, f, indent=2)
 
+
     # === Accelerate-native save (model + optimizer + scheduler + RNG) ===
-    accelerator.save_state(checkpoint_dir)
+    # Write to a .tmp directory first, then atomically rename so a SIGTERM mid-write
+    # never leaves a partial checkpoint visible to GCS sync or resume logic.
+    tmp_dir = checkpoint_dir + ".tmp"
+    if accelerator.is_main_process and os.path.exists(tmp_dir):
+        shutil.rmtree(tmp_dir)
+    accelerator.save_state(tmp_dir)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        os.rename(tmp_dir, checkpoint_dir)
 
     if accelerator.is_main_process:
         meta = {
@@ -279,6 +333,8 @@ def save_checkpoint(save_dir, step, model_engine, loss, accelerator, config=None
                 json.dump(norm_stats, f, indent=2)
 
         logging.info(f"[Rank {accelerator.process_index}] Saved checkpoint to {checkpoint_dir}")
+
+    _gcs_sync_now()
 
 def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="step_best", load_optimizer_states=True, resume_pretrain=False):  # noqa: model_engine kept for API compat
 
@@ -337,7 +393,12 @@ def load_checkpoint_with_deepspeed(model_engine, load_dir, accelerator, tag="ste
         with open(meta_path) as f:
             client_state = json.load(f)
 
-    step = 0 if resume_pretrain else client_state.get("step", 0)
+    raw_step = client_state.get("step", 0)
+    try:
+        step = 0 if resume_pretrain else int(raw_step)
+    except (ValueError, TypeError):
+        # Named checkpoint tag (e.g. "final", "best") — treat as step 0 for scheduler
+        step = 0
     if accelerator.is_main_process:
         logging.info(f"Resuming from step={step}")
     return step, client_state
@@ -388,7 +449,10 @@ def train(config):
     # === Set logging ===
     save_dir = get_with_warning(config, "save_dir", "checkpoints")
     log_path = setup_logging(save_dir)
-    
+
+    # === GCS sync (preemptible GCP) ===
+    setup_gcs_sync(save_dir, get_with_warning(config, "gcs_bucket", None))
+
     # === WandB and Swanlab ===
     init_wandb(config, accelerator)
     init_swanlab(config, accelerator)
@@ -532,8 +596,8 @@ def train(config):
         if resume_model_only:
             # Optimizer structure differs from the checkpoint (cross-stage resume) —
             # scheduler state was not loaded, so rebuild it with the correct resume_step.
-            scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=step))
-            accelerator.register_for_checkpointing(scheduler)
+            # Do NOT call register_for_checkpointing again — scheduler is already registered.
+            scheduler = LambdaLR(optimizer, get_lr_lambda(warmup_steps, max_steps, resume_step=int(step)))
     else:
         step = 0
         if accelerator.is_main_process:
@@ -735,6 +799,8 @@ if __name__ == "__main__":
     parser.add_argument("--cache_dir", type=str, default="/content/training_data_cache",
                     help="Cache directory for preprocessed trajectory pkl files.")
     parser.add_argument("--disable_swanlab", action="store_true")
+    parser.add_argument("--gcs_bucket", type=str, default=None,
+                        help="GCS bucket URI (e.g. gs://my-bucket/run) to rsync checkpoints after each save and on SIGTERM.")
     # State encoder
     parser.add_argument("--history_len", type=int, default=5,
                         help="k — number of past timesteps in state history. Must be >= 3.")

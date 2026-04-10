@@ -18,6 +18,9 @@ import sys
 import os
 import time
 
+# ── Environment detection ───────────────────────────────────────────────
+BASE_DIR = "/content" if os.path.exists("/content") else os.path.expanduser("~")
+
 # ── Shared training hyperparameters ────────────────────────────────────
 SHARED = {
     "action_head":       "flowmatching",
@@ -43,8 +46,8 @@ SHARED = {
     "trace_decay":       "0.9",
     "vlm_name":          "OpenGVLab/InternVL3-1B",
     "wandb_project":     "evo1_metaworld",
-    "dataset_config":    "/content/Evo_1/Evo_1/dataset/metaworld_config.yaml",
-    "cache_dir":         "/content/drive/MyDrive/Evo1_experiments/cache/metaworld",
+    "dataset_config":    f"{BASE_DIR}/Evo_1/Evo_1/dataset/metaworld_config.yaml",
+    "cache_dir":         f"{BASE_DIR}/Evo1_training_dataset/cache/metaworld",
 }
 
 # ── Accelerate launcher flags ───────────────────────────────────────────
@@ -57,34 +60,43 @@ ACCELERATE = [
     "--deepspeed_config_file", "ds_config.json",
 ]
 
+# GCS base prefix — basename of save_dir is appended automatically by the sync code
+# Result: gs://model-checkpointing/all_check_7500steps/all_check_7500steps/expX/stage1/
+_GCS_BASE = "gs://model-checkpointing/all_check_7500steps/all_check_7500steps"
+
 # ── Per-experiment config ───────────────────────────────────────────────
-# save_dir       : where Stage 1 checkpoints are written (on Drive)
-# features       : list of feature names
+# save_dir   : local path on GCP instance (fast SSD under /tmp)
+# gcs_bucket : GCS prefix to rsync save_dir into (train.py appends basename of save_dir)
+# features   : list of feature names
 # embedding_strain
 EXPERIMENTS = {
     "exp1": {
         "run_name":         "Evo1_metaworld_exp1_stage1",
         "features":         ["position"],
         "embedding_strain": "none",
-        "save_dir":         "/content/exp1/stage1",
+        "save_dir":         "/tmp/exp1/stage1",
+        "gcs_bucket":       f"{_GCS_BASE}/exp1",
     },
     "exp2A": {
         "run_name":         "Evo1_metaworld_exp2A_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "A",
-        "save_dir":         "/content/exp2A/stage1",
+        "save_dir":         "/tmp/exp2A/stage1",
+        "gcs_bucket":       f"{_GCS_BASE}/exp2A",
     },
     "exp2B": {
         "run_name":         "Evo1_metaworld_exp2B_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "B",
-        "save_dir":         "/content/exp2B/stage1",
+        "save_dir":         "/tmp/exp2B/stage1",
+        "gcs_bucket":       f"{_GCS_BASE}/exp2B",
     },
     "exp2C": {
         "run_name":         "Evo1_metaworld_exp2C_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "C",
-        "save_dir":         "/content/exp2C/stage1",
+        "save_dir":         "/tmp/exp2C/stage1",
+        "gcs_bucket":       f"{_GCS_BASE}/exp2C",
     },
 }
 
@@ -138,6 +150,7 @@ def build_command(exp_key):
         "--dataset_config_path", sh["dataset_config"],
         "--cache_dir",           sh["cache_dir"],
         "--save_dir",            exp["save_dir"],
+        "--gcs_bucket",          exp["gcs_bucket"],
         "--history_len",         sh["history_len"],
         "--features",            *exp["features"],
         "--embedding_strain",    exp["embedding_strain"],
@@ -152,9 +165,10 @@ def build_command(exp_key):
 def main():
     print("=" * 60)
     print("  Evo-1 MetaWorld — Stage 1 Launcher")
+    print(f"  BASE_DIR = {BASE_DIR}")
     print("=" * 60)
 
-    os.chdir("/content/Evo_1/Evo_1")
+    os.chdir(f"{BASE_DIR}/Evo_1/Evo_1")
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     selected = []
@@ -172,7 +186,8 @@ def main():
     for exp_key in selected:
         exp = EXPERIMENTS[exp_key]
         print(f"  * {exp_key}  [fresh start]")
-        print(f"    save_dir : {exp['save_dir']}")
+        print(f"    save_dir   : {exp['save_dir']}")
+        print(f"    gcs_bucket : {exp['gcs_bucket']}")
     print("=" * 60)
 
     confirm = ask("\nProceed?", ["Yes", "No"])
@@ -184,7 +199,7 @@ def main():
     processes = {}
     for exp_key in selected:
         cmd = build_command(exp_key)
-        log_path = f"/content/{exp_key}_stage1_launch.log"
+        log_path = f"/tmp/{exp_key}_stage1_launch.log"
         print(f"\n[{exp_key}] Launching... log -> {log_path}")
         with open(log_path, "w") as logf:
             p = subprocess.Popen(
@@ -198,7 +213,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  All processes launched.")
-    print("  Monitor logs with:  tail -f /content/expX_stage1_launch.log")
+    print("  Monitor logs with:  tail -f /tmp/expX_stage1_launch.log")
     print("=" * 60)
 
     # Poll all processes until each finishes, reporting completions as they occur
