@@ -48,6 +48,7 @@ SHARED = {
     "wandb_project":     "evo1_metaworld",
     "dataset_config":    f"{BASE_DIR}/Evo_1/Evo_1/dataset/metaworld_config.yaml",
     "cache_dir":         f"{BASE_DIR}/Evo1_training_dataset/cache/metaworld",
+    "num_workers": "2",
 }
 
 # ── Accelerate launcher flags ───────────────────────────────────────────
@@ -196,6 +197,7 @@ def build_command(exp_key, resume_path):
         "--resume",
         "--resume_path",         resume_path,
         "--disable_swanlab",
+        "--num_workers", sh["num_workers"],
     ]
 
     if cross_stage:
