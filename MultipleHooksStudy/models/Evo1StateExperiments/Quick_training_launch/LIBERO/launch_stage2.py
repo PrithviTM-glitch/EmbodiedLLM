@@ -48,6 +48,7 @@ SHARED = {
     "wandb_project":     "evo1_libero",
     "dataset_config":    f"{BASE_DIR}/Evo_1/Evo_1/dataset/libero_config.yaml",
     "cache_dir":         f"{BASE_DIR}/Evo1_training_dataset/cache/libero",
+    "num_workers": "2",
 }
 
 # ── Accelerate launcher flags ───────────────────────────────────────────
@@ -190,6 +191,7 @@ def build_command(exp_key, resume_path):
         "--pretrain_lr",         sh["pretrain_lr"],
         "--lambda_orth",         sh["lambda_orth"],
         "--trace_decay",         sh["trace_decay"],
+        "--num_workers", sh["num_workers"],
         "--skip_pretrain",
         "--resume",
         "--resume_path",         resume_path,
