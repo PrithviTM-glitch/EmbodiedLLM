@@ -139,7 +139,9 @@ def ask(question, options):
 def pull_from_gcs(gcs_path: str) -> str:
     """Download a single checkpoint directory from GCS to local cache.
     Returns the local path the checkpoint was downloaded to."""
-    suffix = gcs_path.split("all_check_7500steps/", 1)[-1]  # strip bucket prefix
+    # Reconstruct a stable local path from the GCS key
+    # e.g. gs://bucket/foo/exp1/stage1/step_5000 → /home/tmprithvi/tmp/resume_cache/exp1/stage1/step_5000
+    suffix = gcs_path.replace("gs://model-checkpointing/", "").replace("/", "_")
     local_path = os.path.join(_LOCAL_RESUME_CACHE, suffix)
     os.makedirs(local_path, exist_ok=True)
     print(f"  [GCS] Pulling {gcs_path}")
