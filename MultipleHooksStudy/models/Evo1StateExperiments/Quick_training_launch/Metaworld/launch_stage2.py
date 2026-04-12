@@ -65,10 +65,10 @@ ACCELERATE = [
 # Save base : frequent checkpoints written here during training
 # Resume base: sparse 7500-step checkpoints pulled from here to restart
 _GCS_SAVE_BASE   = "gs://model-checkpointing/all_check_freq_saves"
-_GCS_RESUME_BASE = "gs://model-checkpointing/all_check_7500steps/all_check_7500steps"
+_GCS_RESUME_BASE = "gs://model-checkpointing/all_check_freq_saves"
 
 # Local directory where resume checkpoints are downloaded before launch
-_LOCAL_RESUME_CACHE = "/tmp/resume_cache"
+_LOCAL_RESUME_CACHE = "/home/tmprithvi/tmp/resume_cache"
 
 # ── Per-experiment config ───────────────────────────────────────────────
 # save_dir          : local path for live Stage 2 checkpoints (fast SSD)
@@ -81,37 +81,37 @@ EXPERIMENTS = {
         "run_name":           "Evo1_metaworld_exp1_stage2",
         "features":           ["position"],
         "embedding_strain":   "none",
-        "save_dir":           "/tmp/exp1/stage2",
+        "save_dir":           "/home/tmprithvi/tmp/exp1/stage2",
         "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp1",
         "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/exp1/stage1/step_5000",
-        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp1/stage2/step_57500",
+        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp1/stage2/step_62500",
     },
     "exp2A": {
         "run_name":           "Evo1_metaworld_exp2A_stage2",
         "features":           ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain":   "A",
-        "save_dir":           "/tmp/exp2A/stage2",
+        "save_dir":           "/home/tmprithvi/tmp/exp2A/stage2",
         "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp2A",
         "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/exp2A/stage1/step_5000",
-        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2A/stage2/step_20000",
+        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2A/stage2/step_25000",
     },
     "exp2B": {
         "run_name":           "Evo1_metaworld_exp2B_stage2",
         "features":           ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain":   "B",
-        "save_dir":           "/tmp/exp2B/stage2",
+        "save_dir":           "/home/tmprithvi/tmp/exp2B/stage2",
         "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp2B",
         "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/exp2B/stage1/step_5000",
-        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2B/stage2/step_12500",
+        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2B/stage2/step_17500",
     },
     "exp2C": {
         "run_name":           "Evo1_metaworld_exp2C_stage2",
         "features":           ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain":   "C",
-        "save_dir":           "/tmp/exp2C/stage2",
+        "save_dir":           "/home/tmprithvi/tmp/exp2C/stage2",
         "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp2C",
         "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/exp2C/stage1/step_5000",
-        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2C/stage2/step_12500",
+        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp2C/stage2/step_17500",
     },
 }
 
@@ -140,8 +140,8 @@ def pull_from_gcs(gcs_path: str) -> str:
     """Download a single checkpoint directory from GCS to local cache.
     Returns the local path the checkpoint was downloaded to."""
     # Reconstruct a stable local path from the GCS key
-    # e.g. gs://bucket/foo/exp1/stage1/step_5000 → /tmp/resume_cache/exp1/stage1/step_5000
-    suffix = gcs_path.split("all_check_7500steps/", 1)[-1]  # strip bucket prefix
+    # e.g. gs://bucket/foo/exp1/stage1/step_5000 → /home/tmprithvi/tmp/resume_cache/exp1/stage1/step_5000
+    suffix = gcs_path.replace("gs://model-checkpointing/", "").replace("/", "_")
     local_path = os.path.join(_LOCAL_RESUME_CACHE, suffix)
     os.makedirs(local_path, exist_ok=True)
     print(f"  [GCS] Pulling {gcs_path}")
@@ -255,7 +255,7 @@ def main():
     processes = {}
     for exp_key, resume_type in selected.items():
         cmd = build_command(exp_key, local_resume_paths[exp_key])
-        log_path = f"/tmp/{exp_key}_stage2_launch.log"
+        log_path = f"/home/tmprithvi/tmp/{exp_key}_stage2_launch.log"
         print(f"\n[{exp_key}] Launching... log -> {log_path}")
         with open(log_path, "w") as logf:
             p = subprocess.Popen(cmd, stdout=logf, stderr=subprocess.STDOUT, env={**os.environ})
@@ -264,7 +264,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  All processes launched.")
-    print("  Monitor logs with:  tail -f /tmp/expX_stage2_launch.log")
+    print("  Monitor logs with:  tail -f /home/tmprithvi/tmp/expX_stage2_launch.log")
     print("=" * 60)
 
     remaining = dict(processes)
