@@ -20,22 +20,22 @@ Key options (all have defaults):
     --no-window     disable cv2 imshow
 """
 
+import os
+os.environ.setdefault("MUJOCO_GL", "egl")  # must be set before mujoco/metaworld import
+
 import argparse
 import asyncio
 import datetime
 import json
-import os
 from collections import deque
 from typing import Dict, List, Optional, Set
 
 import cv2
 import gymnasium as gym
+gym.logger.min_level = gym.logger.ERROR
 import metaworld  # noqa: F401
 import numpy as np
 import websockets
-
-os.environ.setdefault("MUJOCO_GL", "egl")
-gym.logger.min_level = gym.logger.ERROR
 
 # ── Constants / defaults (overridden by argparse) ─────────────────────────────
 _DEFAULTS = dict(

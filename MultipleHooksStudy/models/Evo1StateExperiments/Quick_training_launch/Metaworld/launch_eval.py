@@ -128,6 +128,7 @@ def main():
 
     # 2) Start server
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+    os.environ.setdefault("MUJOCO_GL", "egl")
     server_log = f"/tmp/eval_server_{os.path.basename(ckpt_dir)}.log"
     print(f"\n[server] Starting — log → {server_log}")
 
