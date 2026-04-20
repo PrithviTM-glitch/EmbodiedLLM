@@ -64,7 +64,7 @@ def _gcs_sync_now(force: bool = False):
         return
     _last_gcs_sync = now
     dest = f"{_gcs_bucket.rstrip('/')}/{os.path.basename(_gcs_save_dir.rstrip('/'))}"
-    cmd = ["gsutil", "-m", "rsync", "-r", _gcs_save_dir, dest]
+    cmd = ["gcloud", "storage", "rsync", "--recursive", _gcs_save_dir, dest]
     logging.info(f"[GCS] rsync {_gcs_save_dir} → {dest}")
     try:
         subprocess.run(cmd, check=True)

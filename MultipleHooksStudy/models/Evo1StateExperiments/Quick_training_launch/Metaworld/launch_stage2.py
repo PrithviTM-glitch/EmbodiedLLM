@@ -147,7 +147,7 @@ def pull_from_gcs(gcs_path: str) -> str:
     print(f"  [GCS] Pulling {gcs_path}")
     print(f"        → {local_path}")
     subprocess.run(
-        ["gsutil", "-m", "rsync", "-r", gcs_path, local_path],
+        ["gcloud", "storage", "rsync", "--recursive", gcs_path, local_path],
         check=True,
     )
     return local_path

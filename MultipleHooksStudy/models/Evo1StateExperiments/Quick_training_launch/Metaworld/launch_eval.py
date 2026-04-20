@@ -43,7 +43,7 @@ def pull_from_gcs(gcs_path: str, local_base: str) -> str:
     os.makedirs(local_path, exist_ok=True)
     print(f"  [GCS] {gcs_path}")
     print(f"        → {local_path}")
-    subprocess.run(["gsutil", "-m", "rsync", "-r", gcs_path, local_path], check=True)
+    subprocess.run(["gcloud", "storage", "rsync", "--recursive", gcs_path, local_path], check=True)
     return local_path
 
 
