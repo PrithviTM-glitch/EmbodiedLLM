@@ -68,8 +68,8 @@ def parse_args():
     ckpt = p.add_mutually_exclusive_group(required=True)
     ckpt.add_argument("--ckpt-dir", metavar="PATH",
                       help="Local step_XXXXX directory (skips GCS pull)")
-    ckpt.add_argument("--step",     type=int,
-                      help="Checkpoint step to pull from GCS (requires --exp)")
+    ckpt.add_argument("--step",
+                      help="Checkpoint tag to pull from GCS, e.g. 80000 or best or final (requires --exp)")
 
     p.add_argument("--exp",     choices=EXP_KEYS, default=None,
                    help="Experiment key (required when using --step)")
