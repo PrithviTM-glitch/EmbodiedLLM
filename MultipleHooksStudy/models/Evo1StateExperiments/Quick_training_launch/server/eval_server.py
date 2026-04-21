@@ -174,13 +174,33 @@ async def handle(websocket, model, normalizer, device):
 # ── Entrypoint ────────────────────────────────────────────────────────────────
 def parse_args():
     p = argparse.ArgumentParser(description="Evo-1 WebSocket inference server")
-    p.add_argument("--ckpt_dir",  required=True,         help="Path to step_XXXXX checkpoint directory")
-    p.add_argument("--port",      type=int, default=9000)
-    p.add_argument("--device",    default="cuda")
-    p.add_argument("--timesteps", type=int, default=32,  help="Flow-matching inference timesteps")
-    p.add_argument("--evo1-root", default=None,
+    p.add_argument("--ckpt_dir",     required=True,        help="Path to step_XXXXX checkpoint directory")
+    p.add_argument("--port",         type=int, default=9000)
+    p.add_argument("--device",       default="cuda")
+    p.add_argument("--timesteps",    type=int, default=32, help="Flow-matching inference timesteps")
+    p.add_argument("--evo1-root",    default=None,
                    help=f"Path to Evo_1 package root (default: {_DEFAULT_EVO1_ROOT})")
+    p.add_argument("--ablate-state", action="store_true",
+                   help="Zero out the state encoder output (ablation: same shape, no state signal)")
     return p.parse_args()
+
+
+def apply_state_ablation(model):
+    """Register a forward hook that zeros the state encoder output.
+    The hook preserves the output tensor shape so downstream attention layers
+    are unaffected — this isolates whether the state encoder is helping."""
+    se = getattr(getattr(model, "action_head", None), "state_encoder", None)
+    if se is None:
+        print("[server] WARNING: state_encoder not found — --ablate-state has no effect")
+        return
+
+    def _zero_output(module, input, output):
+        return torch.zeros_like(output)
+
+    se.register_forward_hook(_zero_output)
+    n_params = sum(p.numel() for p in se.parameters()) / 1e6
+    print(f"[server] ABLATION: state encoder output zeroed "
+          f"({n_params:.2f}M params bypassed, shape preserved)")
 
 
 async def serve(model, normalizer, device, port):
@@ -197,4 +217,6 @@ if __name__ == "__main__":
     args = parse_args()
     _setup_evo1_path(args.evo1_root or _DEFAULT_EVO1_ROOT)
     model, normalizer = load_model_and_normalizer(args.ckpt_dir, args.device, args.timesteps)
+    if args.ablate_state:
+        apply_state_ablation(model)
     asyncio.run(serve(model, normalizer, args.device, args.port))

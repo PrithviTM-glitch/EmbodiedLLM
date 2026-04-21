@@ -90,10 +90,12 @@ def parse_args():
     p.add_argument("--target-level", default="all",
                    choices=["all","easy","medium","hard","very_hard"])
     p.add_argument("--history-len",  type=int, default=6)
-    p.add_argument("--state-take",   type=int, default=8)
+    p.add_argument("--state-take",   type=int, default=24)
     p.add_argument("--inference-horizon", type=int, default=15)
-    p.add_argument("--no-video",  action="store_true")
-    p.add_argument("--no-window", action="store_true")
+    p.add_argument("--no-video",     action="store_true")
+    p.add_argument("--no-window",    action="store_true")
+    p.add_argument("--ablate-state", action="store_true",
+                   help="Zero state encoder output (ablation run)")
 
     # GCS / cache options
     p.add_argument("--local-cache", default=_DEFAULT_LOCAL_CACHE,
@@ -132,13 +134,17 @@ def main():
     server_log = f"/tmp/eval_server_{os.path.basename(ckpt_dir)}.log"
     print(f"\n[server] Starting — log → {server_log}")
 
+    server_cmd = [sys.executable, _SERVER_SCRIPT,
+                  "--ckpt_dir",  ckpt_dir,
+                  "--port",      str(args.port),
+                  "--device",    args.device,
+                  "--timesteps", str(args.timesteps)]
+    if args.ablate_state:
+        server_cmd.append("--ablate-state")
+
     with open(server_log, "w") as logf:
         server_proc = subprocess.Popen(
-            [sys.executable, _SERVER_SCRIPT,
-             "--ckpt_dir",  ckpt_dir,
-             "--port",      str(args.port),
-             "--device",    args.device,
-             "--timesteps", str(args.timesteps)],
+            server_cmd,
             stdout=logf,
             stderr=subprocess.STDOUT,
             env={**os.environ},
