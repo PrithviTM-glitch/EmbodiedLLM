@@ -43,10 +43,10 @@ from libero.libero.envs import OffScreenRenderEnv
 # ── Suite config ───────────────────────────────────────────────────────────────
 # Default max_steps per suite (total env steps across the action chunk loop)
 SUITE_MAX_STEPS = {
-    "libero_spatial": 250,
-    "libero_object":  250,
-    "libero_goal":    250,
-    "libero_10":      600,
+    "libero_spatial": 25,
+    "libero_object":  25,
+    "libero_goal":    25,
+    "libero_10":      95,
 }
 ALL_SUITES = list(SUITE_MAX_STEPS.keys())
 
@@ -222,8 +222,8 @@ async def eval_suite(ws, suite_name: str, args, log: logging.Logger) -> Dict:
                     try:
                         obs, reward, done, info = env.step(action[:7])
                     except ValueError as e:
-                        log.warning(f"Invalid action at step {step}: {e}")
-                        episode_done = False
+                        log.warning(f"Episode already terminated at step {step}: {e}")
+                        episode_done = True  # env is dead, stop stepping
                         break
 
                     # Update history — append keeps oldest at index 0
