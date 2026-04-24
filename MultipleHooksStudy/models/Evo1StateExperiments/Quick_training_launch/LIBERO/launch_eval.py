@@ -97,6 +97,15 @@ def parse_args():
                    help="Override max_steps for all suites")
     p.add_argument("--no-video",          action="store_true")
 
+    # Colab / conda options
+    p.add_argument("--colab",      action="store_true",
+                   help="Run the LIBERO client inside the 'libero' conda env "
+                        "(required on Colab where LIBERO needs Python 3.8)")
+    p.add_argument("--conda-env",  default="libero",
+                   help="Conda env name to use with --colab (default: libero)")
+    p.add_argument("--conda-dir",  default="/root/miniconda3",
+                   help="Miniconda installation directory (default: /root/miniconda3)")
+
     # Cache
     p.add_argument("--local-cache", default=_DEFAULT_LOCAL_CACHE)
 
@@ -161,8 +170,22 @@ def main():
         sys.exit(1)
 
     # 4) Run client
+    # --colab: run inside the libero conda env (Python 3.8 + LIBERO package)
+    # uses `conda run` which works without activating the env in the shell
+    if args.colab:
+        conda_bin = os.path.join(args.conda_dir, "bin", "conda")
+        if not os.path.exists(conda_bin):
+            print(f"[ERROR] conda not found at {conda_bin}. "
+                  f"Run LIBERO_evaluation/setup_libero_env.sh first.")
+            server_proc.terminate()
+            sys.exit(1)
+        client_python = [conda_bin, "run", "--no-capture-output",
+                         "-n", args.conda_env, "python"]
+    else:
+        client_python = [sys.executable]
+
     client_cmd = [
-        sys.executable, _CLIENT_SCRIPT,
+        *client_python, _CLIENT_SCRIPT,
         "--server-url",        f"ws://127.0.0.1:{args.port}",
         "--episodes",          str(args.episodes),
         "--seed",              str(args.seed),
