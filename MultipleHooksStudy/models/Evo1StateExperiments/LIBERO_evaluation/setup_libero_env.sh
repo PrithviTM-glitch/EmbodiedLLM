@@ -30,6 +30,9 @@ fi
 export PATH="$CONDA_DIR/bin:$PATH"
 
 # ── 2. Create conda env (skip if already exists) ──────────────────────────────
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main
+conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r
+
 if conda env list | grep -q "^libero "; then
   echo "[setup] conda env 'libero' already exists — skipping creation"
 else
