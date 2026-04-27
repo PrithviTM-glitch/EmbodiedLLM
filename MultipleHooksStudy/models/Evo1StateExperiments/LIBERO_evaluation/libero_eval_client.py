@@ -46,7 +46,7 @@ SUITE_MAX_STEPS = {
     "libero_spatial": 25,
     "libero_object":  25,
     "libero_goal":    25,
-    "libero_10":      95,
+    "libero_10":      60,   # 60 * 14 = 840 env steps < 1000 internal limit
 }
 ALL_SUITES = list(SUITE_MAX_STEPS.keys())
 
@@ -208,7 +208,8 @@ async def eval_suite(ws, suite_name: str, args, log: logging.Logger) -> Dict:
             state_buf = deque([init_vec] * args.history_len, maxlen=args.history_len)
 
             frames = []
-            episode_done = False
+            episode_done    = False  # True when env is dead (success or timeout)
+            episode_success = False  # True only when task was actually completed
 
             for step in range(max_steps):
                 # state_buf[0]=oldest, state_buf[-1]=most recent — matches dataset ordering
@@ -222,8 +223,9 @@ async def eval_suite(ws, suite_name: str, args, log: logging.Logger) -> Dict:
                     try:
                         obs, reward, done, info = env.step(action[:7])
                     except ValueError as e:
-                        log.warning(f"Episode already terminated at step {step}: {e}")
-                        episode_done = True  # env is dead, stop stepping
+                        # Env hit its internal horizon without task completion
+                        log.warning(f"Env horizon reached at outer step {step}: {e}")
+                        episode_done = True
                         break
 
                     # Update history — append keeps oldest at index 0
@@ -237,9 +239,10 @@ async def eval_suite(ws, suite_name: str, args, log: logging.Logger) -> Dict:
                         frames.append(frame)
 
                     if done:
-                        episode_done = True
-                        task_success += 1
-                        suite_success += 1
+                        episode_done    = True
+                        episode_success = True
+                        task_success   += 1
+                        suite_success  += 1
                         break
 
                 if episode_done:
@@ -247,7 +250,7 @@ async def eval_suite(ws, suite_name: str, args, log: logging.Logger) -> Dict:
 
             suite_episodes += 1
 
-            status = "SUCCESS" if episode_done else "FAIL"
+            status = "SUCCESS" if episode_success else "FAIL"
             log.info(f"  Task {task_id+1} | Ep {ep+1}: {status}")
 
             if not args.no_video and frames:

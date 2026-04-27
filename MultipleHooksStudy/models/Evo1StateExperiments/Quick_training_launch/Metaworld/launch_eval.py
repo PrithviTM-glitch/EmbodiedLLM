@@ -33,7 +33,7 @@ _CLIENT_CWD    = os.path.join(_REPO_ROOT, "MetaWorld_evaluation")
 _GCS_EVAL_BASE    = "gs://model-checkpointing/all_check_freq_saves"
 _DEFAULT_LOCAL_CACHE = "/home/tmprithvi/tmp/eval_cache"
 
-EXP_KEYS = ["exp1", "exp2A", "exp2B", "exp2C"]
+EXP_KEYS = ["exp1", "exp2A", "exp2B", "exp2C", "exp_k0"]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

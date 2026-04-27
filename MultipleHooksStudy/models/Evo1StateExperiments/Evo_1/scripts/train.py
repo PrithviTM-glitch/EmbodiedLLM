@@ -472,7 +472,7 @@ def train(config):
     model.train()
     model.set_finetune_flags()
 
-    if config.get("finetune_vlm", False):
+    if config.get("finetune_vlm", False) and config.get("grad_checkpoint", False):
         try:
             model.embedder.model.language_model.gradient_checkpointing_enable()
             model.embedder.model.vision_model.gradient_checkpointing_enable()
@@ -819,6 +819,8 @@ if __name__ == "__main__":
                         help="Learning rate for Phase 0 state encoder pretraining.")
     parser.add_argument("--skip_pretrain", action="store_true",
                         help="Skip Phase 0 pretraining entirely.")
+    parser.add_argument("--grad_checkpoint", action="store_true",
+                        help="Enable gradient checkpointing on the VLM (reduces VRAM at cost of speed).")
     # dropout
     parser.add_argument("--dropout", type=float, default=0.0)
 

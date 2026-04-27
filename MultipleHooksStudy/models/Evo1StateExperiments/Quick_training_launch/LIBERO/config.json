@@ -33,5 +33,4 @@
   "num_workers": 4,
   "dropout": 0.2,
   "action_dim": 1200
-
 }

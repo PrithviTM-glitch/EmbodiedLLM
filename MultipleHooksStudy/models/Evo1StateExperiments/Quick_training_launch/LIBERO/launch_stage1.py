@@ -98,6 +98,15 @@ EXPERIMENTS = {
         "save_dir":         "/tmp/libero/exp2C/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp2C",
     },
+    # k=0 baseline: current state only, position features only — matches vanilla paper setup
+    "exp_k0": {
+        "run_name":         "Evo1_libero_expk0_stage1",
+        "features":         ["position"],
+        "embedding_strain": "none",
+        "history_len":      "0",   # override SHARED history_len
+        "save_dir":         "/tmp/libero/exp_k0/stage1",
+        "gcs_bucket":       f"{_GCS_BASE}/libero/exp_k0",
+    },
 }
 
 # ───────────────────────────────────────────────────────────────────────
@@ -151,7 +160,7 @@ def build_command(exp_key):
         "--cache_dir",           sh["cache_dir"],
         "--save_dir",            exp["save_dir"],
         "--gcs_bucket",          exp["gcs_bucket"],
-        "--history_len",         sh["history_len"],
+        "--history_len",         exp.get("history_len", sh["history_len"]),
         "--features",            *exp["features"],
         "--embedding_strain",    exp["embedding_strain"],
         "--pretrain_steps",      sh["pretrain_steps"],
@@ -172,7 +181,7 @@ def main():
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     selected = []
-    for exp_key in ["exp1", "exp2A", "exp2B", "exp2C"]:
+    for exp_key in ["exp1", "exp2A", "exp2B", "exp2C", "exp_k0"]:
         run = ask(f"Run {exp_key}?", ["Yes", "No"])
         if run == "Yes":
             selected.append(exp_key)

@@ -24,6 +24,7 @@ BASE_DIR = "/content" if os.path.exists("/content") else os.path.expanduser("~")
 # ── Shared training hyperparameters ────────────────────────────────────
 SHARED = {
     "action_head":       "flowmatching",
+    "grad_checkpoint":   True,
     "lr":                "1e-5",
     "dropout":           "0.2",
     "weight_decay":      "1e-3",
@@ -113,6 +114,17 @@ EXPERIMENTS = {
         "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/libero/exp2C/stage1/step_10000",
         "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/libero/exp2C/stage2/step_XXXX",
     },
+    # k=0 baseline: current state only, position features only — matches vanilla paper setup
+    "exp_k0": {
+        "run_name":           "Evo1_libero_expk0_stage2",
+        "features":           ["position"],
+        "embedding_strain":   "none",
+        "history_len":        "0",   # override SHARED history_len
+        "save_dir":           "/home/tmprithvi/tmp/libero/exp_k0/stage2",
+        "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp_k0",
+        "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/libero/exp_k0/stage1/step_10000",
+        "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/libero/exp_k0/stage2/step_XXXX",
+    },
 }
 
 CROSS_STAGE  = "Stage 1 -> Stage 2  (cross-stage)"
@@ -186,7 +198,7 @@ def build_command(exp_key, resume_path):
         "--cache_dir",           sh["cache_dir"],
         "--save_dir",            exp["save_dir"],
         "--gcs_bucket",          exp["gcs_bucket"],
-        "--history_len",         sh["history_len"],
+        "--history_len",         exp.get("history_len", sh["history_len"]),
         "--features",            *exp["features"],
         "--embedding_strain",    exp["embedding_strain"],
         "--pretrain_steps",      sh["pretrain_steps"],
@@ -198,6 +210,7 @@ def build_command(exp_key, resume_path):
         "--resume",
         "--resume_path",         resume_path,
         "--disable_swanlab",
+        *(["--grad_checkpoint"] if sh.get("grad_checkpoint") else []),
     ]
 
     if cross_stage:
@@ -216,7 +229,7 @@ def main():
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
     selected = {}
-    for exp_key in ["exp1", "exp2A", "exp2B", "exp2C"]:
+    for exp_key in ["exp1", "exp2A", "exp2B", "exp2C", "exp_k0"]:
         run = ask(f"Run {exp_key}?", ["Yes", "No"])
         if run == "Yes":
             resume_type = ask(f"  {exp_key} — resume type?", [CROSS_STAGE, WITHIN_STAGE])

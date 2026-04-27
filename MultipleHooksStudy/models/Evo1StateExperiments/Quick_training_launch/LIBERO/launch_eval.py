@@ -31,7 +31,7 @@ _CLIENT_CWD    = os.path.join(_REPO_ROOT, "LIBERO_evaluation")
 _GCS_EVAL_BASE       = "gs://model-checkpointing/libero/all_check_freq_saves"
 _DEFAULT_LOCAL_CACHE = "/home/tmprithvi/tmp/libero_eval_cache"
 
-EXP_KEYS = ["exp1", "exp2A", "exp2B", "exp2C"]
+EXP_KEYS = ["exp1", "exp2A", "exp2B", "exp2C", "exp_k0"]
 ALL_SUITES = ["libero_spatial", "libero_object", "libero_goal", "libero_10"]
 
 
