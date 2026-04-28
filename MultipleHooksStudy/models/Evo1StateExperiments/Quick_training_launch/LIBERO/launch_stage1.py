@@ -74,28 +74,28 @@ EXPERIMENTS = {
         "run_name":         "Evo1_libero_exp1_stage1",
         "features":         ["position"],
         "embedding_strain": "none",
-        "save_dir":         "/tmp/libero/exp1/stage1",
+        "save_dir":         f"{BASE_DIR}/tmp/libero/exp1/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp1",
     },
     "exp2A": {
         "run_name":         "Evo1_libero_exp2A_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "A",
-        "save_dir":         "/tmp/libero/exp2A/stage1",
+        "save_dir":         f"{BASE_DIR}/tmp/libero/exp2A/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp2A",
     },
     "exp2B": {
         "run_name":         "Evo1_libero_exp2B_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "B",
-        "save_dir":         "/tmp/libero/exp2B/stage1",
+        "save_dir":         f"{BASE_DIR}/tmp/libero/exp2B/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp2B",
     },
     "exp2C": {
         "run_name":         "Evo1_libero_exp2C_stage1",
         "features":         ["position", "velocity", "acceleration", "trace", "deviation"],
         "embedding_strain": "C",
-        "save_dir":         "/tmp/libero/exp2C/stage1",
+        "save_dir":         f"{BASE_DIR}/tmp/libero/exp2C/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp2C",
     },
     # k=0 baseline: current state only, position features only — matches vanilla paper setup
@@ -104,7 +104,7 @@ EXPERIMENTS = {
         "features":         ["position"],
         "embedding_strain": "none",
         "history_len":      "0",   # override SHARED history_len
-        "save_dir":         "/tmp/libero/exp_k0/stage1",
+        "save_dir":         f"{BASE_DIR}/tmp/libero/exp_k0/stage1",
         "gcs_bucket":       f"{_GCS_BASE}/libero/exp_k0",
     },
 }
@@ -208,7 +208,7 @@ def main():
     processes = {}
     for exp_key in selected:
         cmd = build_command(exp_key)
-        log_path = f"/tmp/{exp_key}_libero_stage1_launch.log"
+        log_path = f"{BASE_DIR}/tmp/{exp_key}_libero_stage1_launch.log"
         print(f"\n[{exp_key}] Launching... log -> {log_path}")
         with open(log_path, "w") as logf:
             p = subprocess.Popen(
@@ -222,7 +222,7 @@ def main():
 
     print("\n" + "=" * 60)
     print("  All processes launched.")
-    print("  Monitor logs with:  tail -f /tmp/expX_libero_stage1_launch.log")
+    print("  Monitor logs with:  tail -f {BASE_DIR}/tmp/expX_libero_stage1_launch.log")
     print("=" * 60)
 
     # Poll all processes until each finishes, reporting completions as they occur
