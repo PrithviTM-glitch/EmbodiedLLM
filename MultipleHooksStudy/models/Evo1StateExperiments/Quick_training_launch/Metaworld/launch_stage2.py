@@ -122,7 +122,7 @@ EXPERIMENTS = {
         "history_len":        "0",   # override SHARED history_len
         "save_dir":           f"{BASE_DIR}/tmp/exp_k0/stage2",
         "gcs_bucket":         f"{_GCS_SAVE_BASE}/exp_k0",
-        "gcs_resume_stage1":  f"{_GCS_RESUME_BASE}/exp_k0/stage1/step_5000",
+        "gcs_resume_stage1":  f"gs://model-checkpointing/all_check_7500steps/all_check_7500steps/exp_k0/stage1/step_5000",
         "gcs_resume_stage2":  f"{_GCS_RESUME_BASE}/exp_k0/stage2/step_XXXX",
     },
 }

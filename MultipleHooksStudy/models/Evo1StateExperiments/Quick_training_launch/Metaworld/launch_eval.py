@@ -94,6 +94,8 @@ def parse_args():
     p.add_argument("--inference-horizon", type=int, default=15)
     p.add_argument("--no-video",     action="store_true")
     p.add_argument("--no-window",    action="store_true")
+    p.add_argument("--log-dir",      default=None,
+                   help="Directory for eval result logs (default: MetaWorld_evaluation/logs/)")
     p.add_argument("--ablate-state", action="store_true",
                    help="Zero state encoder output (ablation run)")
 
@@ -171,6 +173,7 @@ def main():
     ]
     if args.no_video:  client_cmd.append("--no-video")
     if args.no_window: client_cmd.append("--no-window")
+    if args.log_dir:   client_cmd += ["--log-dir", args.log_dir]
 
     print(f"\n[client] Starting MT50 eval...")
     try:

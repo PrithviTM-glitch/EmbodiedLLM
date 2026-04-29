@@ -96,6 +96,8 @@ def parse_args():
     p.add_argument("--max-steps",         type=int, default=None,
                    help="Override max_steps for all suites")
     p.add_argument("--no-video",          action="store_true")
+    p.add_argument("--log-dir",           default=None,
+                   help="Directory for eval result logs (default: LIBERO_evaluation/log_file/)")
 
     # Colab / conda options
     p.add_argument("--colab",      action="store_true",
@@ -197,6 +199,8 @@ def main():
         client_cmd += ["--max-steps", str(args.max_steps)]
     if args.no_video:
         client_cmd.append("--no-video")
+    if args.log_dir:
+        client_cmd += ["--log-dir", args.log_dir]
 
     print(f"\n[client] Starting LIBERO eval...")
     try:
