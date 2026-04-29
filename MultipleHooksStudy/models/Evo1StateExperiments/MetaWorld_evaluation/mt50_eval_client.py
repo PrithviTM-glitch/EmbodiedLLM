@@ -78,6 +78,7 @@ def parse_args():
     p.add_argument("--tasks-jsonl",       default=_DEFAULTS["tasks_jsonl"])
     p.add_argument("--no-video",          action="store_true")
     p.add_argument("--no-window",         action="store_true")
+    p.add_argument("--log-dir",           default=_DEFAULTS["log_dir"])
     return p.parse_args()
 
 
@@ -199,7 +200,7 @@ async def evo1_infer(
 
 # ── Main eval loop ────────────────────────────────────────────────────────────
 async def eval_mt50(args):
-    log_path = make_log_path(_DEFAULTS["log_dir"])
+    log_path = make_log_path(args.log_dir)
 
     def log(text): log_write(log_path, text)
 
