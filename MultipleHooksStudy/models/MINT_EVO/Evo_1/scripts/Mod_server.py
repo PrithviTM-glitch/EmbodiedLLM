@@ -63,16 +63,21 @@ class Normalizer:
         return (action + 1.0) / 2.0 * (action_max - action_min + 1e-8) + action_min
 
 
-def load_model_and_normalizer(ckpt_dir):
-    config = json.load(open(os.path.join(ckpt_dir, "config.json")))
-    stats = json.load(open(os.path.join(ckpt_dir, "norm_stats.json")))
+def load_model_and_normalizer(ckpt_dir, timesteps=32):
+    with open(os.path.join(ckpt_dir, "config.json")) as f:       # fix: close fd immediately
+        config = json.load(f)
+    with open(os.path.join(ckpt_dir, "norm_stats.json")) as f:
+        stats = json.load(f)
 
     config["finetune_vlm"] = False
     config["finetune_action_head"] = False
-    config["num_inference_timesteps"] = 32
+    config["num_inference_timesteps"] = timesteps                 # fix: honour --timesteps
 
     model = EVO1(config).eval()
-    model.load_state_dict(load_file(os.path.join(ckpt_dir, "model.safetensors")), strict=True)
+    state_dict = load_file(os.path.join(ckpt_dir, "model.safetensors"))
+    state_dict = {(k[len("module."):] if k.startswith("module.") else k): v  # fix: DDP prefix
+                  for k, v in state_dict.items()}
+    model.load_state_dict(state_dict, strict=True)
     model = model.to("cuda")
 
     normalizer = Normalizer(stats)
@@ -123,11 +128,15 @@ async def handle_request(websocket, model, normalizer):
     print("Client connected")
     try:
         async for message in websocket:
-            json_data = json.loads(message)
-            print("Received JSON observation")
-            actions = infer_from_json_dict(json_data, model, normalizer)
-            await websocket.send(json.dumps(actions))
-            print("Sent action chunk")
+            try:                                                   # fix: catch inference errors
+                json_data = json.loads(message)
+                print("Received JSON observation")
+                actions = infer_from_json_dict(json_data, model, normalizer)
+                await websocket.send(json.dumps(actions))
+                print("Sent action chunk")
+            except Exception as e:
+                import traceback; traceback.print_exc()
+                await websocket.send(json.dumps({"error": str(e)}))
     except websockets.exceptions.ConnectionClosed:
         print("Client disconnected.")
 
@@ -135,12 +144,14 @@ async def handle_request(websocket, model, normalizer):
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(description="Evo-1 inference server (safetensors checkpoint)")
-    parser.add_argument("--ckpt_dir", required=True, help="Path to step_XXXXX checkpoint directory")
-    parser.add_argument("--port", type=int, default=9000)
+    parser.add_argument("--ckpt_dir",  required=True, help="Path to step_XXXXX checkpoint directory")
+    parser.add_argument("--port",      type=int, default=9000)
+    parser.add_argument("--timesteps", type=int, default=32,
+                        help="Flow-matching inference timesteps (default: 32)")
     args = parser.parse_args()
 
     print("Loading EVO_1 model...")
-    model, normalizer = load_model_and_normalizer(args.ckpt_dir)
+    model, normalizer = load_model_and_normalizer(args.ckpt_dir, args.timesteps)
 
     async def main():
         print(f"EVO_1 server running at ws://0.0.0.0:{args.port}")
