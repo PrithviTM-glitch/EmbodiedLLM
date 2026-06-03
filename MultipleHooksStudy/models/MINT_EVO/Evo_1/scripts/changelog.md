@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ---
 
+## [2026-06-03]
+
+### Added
+
+- **`MetaWorld_evaluation/mt50_eval_client.py`** — Local copy of the argparse-based MT50 evaluation client. `launch_eval.py` now resolves the client script from within `MINT_EVO/MetaWorld_evaluation/` instead of the sibling `Evo1StateExperiments` subproject, making MINT_EVO self-contained on a standalone clone.
+
+### Fixed
+
+- **`Mod_server.py` — unclosed file handles** — `json.load(open(...))` replaced with `with open(...) as f: json.load(f)` for `config.json` and `norm_stats.json`. File descriptors are now closed immediately after loading, preventing fd exhaustion on repeated server restarts.
+- **`Mod_server.py` — DDP checkpoint key mismatch** — `load_state_dict()` now strips any `module.` prefix from state-dict keys before loading. Checkpoints produced by multi-GPU DDP training (where `accelerate launch --num_processes > 1` wraps the model in `DistributedDataParallel`) previously caused a `RuntimeError` at startup; this is now handled transparently.
+- **`Mod_server.py` — unhandled inference exceptions** — `handle_request()` now catches all exceptions from `infer_from_json_dict()` (OOM, shape errors, JSON errors, etc.), logs the traceback server-side, and sends `{"error": "<message>"}` to the client instead of closing the WebSocket. Previously any inference exception would terminate the connection and crash the entire MT50 run with no aggregate results written.
+- **`Mod_server.py` — `--timesteps` flag now wired end-to-end** — `load_model_and_normalizer()` accepts a `timesteps` parameter (default `32`) and uses it to set `config["num_inference_timesteps"]` instead of the hardcoded literal. `__main__` exposes `--timesteps` via argparse and passes it through.
+- **`MetaWorld_evaluation/launch_eval.py` — cross-repo client path** — `_CLIENT_SCRIPT` and `_CLIENT_CWD` now point to `_HERE` (i.e. `MINT_EVO/MetaWorld_evaluation/`) instead of the `Evo1StateExperiments` subtree. `_REPO_ROOT` removed as dead code. `subprocess.run` for the client now has `check=True` so a non-zero client exit raises `CalledProcessError` instead of silently returning.
+- **`MetaWorld_evaluation/launch_eval.py` — `--timesteps` passed to server** — `"--timesteps", str(args.timesteps)` added to `server_cmd` so the flag actually reaches `Mod_server.py`.
+- **`MetaWorld_evaluation/mt50_eval_client.py` — server inference errors now surfaced** — `evo1_infer()` checks whether the server response is a `{"error": ...}` dict and raises `RuntimeError` if so. The eval loop catches this, logs the episode as failed, and continues to the next episode rather than crashing the entire run.
+
+---
+
 ## [2026-06-02]
 
 ### Added

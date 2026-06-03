@@ -24,13 +24,10 @@ import time
 # ── Paths (relative to this script) ──────────────────────────────────────────
 _HERE           = os.path.dirname(os.path.abspath(__file__))
 _MINT_EVO_ROOT  = os.path.abspath(os.path.join(_HERE, ".."))
-_REPO_ROOT      = os.path.abspath(os.path.join(_MINT_EVO_ROOT, "..", ".."))
 
 _SERVER_SCRIPT  = os.path.join(_MINT_EVO_ROOT, "Evo_1", "scripts", "Mod_server.py")
-_CLIENT_SCRIPT  = os.path.join(_REPO_ROOT, "models", "Evo1StateExperiments",
-                                "MetaWorld_evaluation", "mt50_eval_client.py")
-_CLIENT_CWD     = os.path.join(_REPO_ROOT, "models", "Evo1StateExperiments",
-                                "MetaWorld_evaluation")
+_CLIENT_SCRIPT  = os.path.join(_HERE, "mt50_eval_client.py")
+_CLIENT_CWD     = _HERE
 
 # ── GCS layout ────────────────────────────────────────────────────────────────
 # gs://model-checkpointing/baseline/baseline/{stage}/step_{N}/
@@ -133,8 +130,9 @@ def main():
 
     server_cmd = [
         sys.executable, _SERVER_SCRIPT,
-        "--ckpt_dir", ckpt_dir,
-        "--port",     str(args.port),
+        "--ckpt_dir",   ckpt_dir,
+        "--port",       str(args.port),
+        "--timesteps",  str(args.timesteps),
     ]
     with open(server_log, "w") as logf:
         server_proc = subprocess.Popen(
@@ -169,7 +167,7 @@ def main():
 
     print(f"\n[client] Starting MT50 eval...")
     try:
-        subprocess.run(client_cmd, cwd=_CLIENT_CWD, env={**os.environ})
+        subprocess.run(client_cmd, cwd=_CLIENT_CWD, env={**os.environ}, check=True)
     finally:
         print("\n[server] Stopping...")
         server_proc.terminate()
