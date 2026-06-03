@@ -129,7 +129,7 @@ def main():
     print(f"\n[server] Starting — log → {server_log}")
 
     server_cmd = [
-        sys.executable, _SERVER_SCRIPT,
+        sys.executable, "-u", _SERVER_SCRIPT,  # -u: unbuffered stdout so crashes appear in log
         "--ckpt_dir",   ckpt_dir,
         "--port",       str(args.port),
         "--timesteps",  str(args.timesteps),
