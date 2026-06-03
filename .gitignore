@@ -23,6 +23,7 @@
 # Ignore model artifacts (weights, checkpoints, local clones)
 models/Evo-1
 models/openpi
+MultipleHooksStudy/models/MINT_EVO/so100_evo1
 
 # Keep a placeholder if you want the directory to exist in repo
 !models/.gitkeep
