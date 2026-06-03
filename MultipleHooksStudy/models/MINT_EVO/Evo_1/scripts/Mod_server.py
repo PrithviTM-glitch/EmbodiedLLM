@@ -73,12 +73,17 @@ def load_model_and_normalizer(ckpt_dir, timesteps=32):
     config["finetune_action_head"] = False
     config["num_inference_timesteps"] = timesteps                 # fix: honour --timesteps
 
+    print("  Building model architecture...")
     model = EVO1(config).eval()
+    print("  Loading safetensors weights from disk...")
     state_dict = load_file(os.path.join(ckpt_dir, "model.safetensors"))
     state_dict = {(k[len("module."):] if k.startswith("module.") else k): v  # fix: DDP prefix
                   for k, v in state_dict.items()}
+    print("  Applying state dict...")
     model.load_state_dict(state_dict, strict=True)
+    print("  Moving model to CUDA...")
     model = model.to("cuda")
+    print("  Model ready.")
 
     normalizer = Normalizer(stats)
     return model, normalizer

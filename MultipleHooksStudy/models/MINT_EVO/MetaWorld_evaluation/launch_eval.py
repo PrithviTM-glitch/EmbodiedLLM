@@ -47,10 +47,14 @@ def pull_from_gcs(gcs_path: str, local_base: str) -> str:
     return local_path
 
 
-def wait_for_server(host: str = "127.0.0.1", port: int = 9000, timeout: int = 300) -> bool:
+def wait_for_server(host: str = "127.0.0.1", port: int = 9000,
+                    timeout: int = 900, server_proc=None) -> bool:
     print(f"  Waiting for server on {host}:{port}  (timeout={timeout}s) ...")
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if server_proc is not None and server_proc.poll() is not None:
+            print(f"  [ERROR] Server process exited (rc={server_proc.returncode}) during startup.")
+            return False
         try:
             with socket.create_connection((host, port), timeout=2):
                 print("  Server is ready.")
@@ -144,7 +148,7 @@ def main():
     print(f"[server] PID {server_proc.pid}")
 
     # 3) Wait for server to be ready
-    if not wait_for_server(port=args.port, timeout=300):
+    if not wait_for_server(port=args.port, timeout=900, server_proc=server_proc):
         print(f"[ERROR] Server did not start in time. Check log: {server_log}")
         server_proc.terminate()
         sys.exit(1)
